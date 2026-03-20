@@ -1,0 +1,176 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@layer base {
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 225 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 225 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 225 25% 12%;
+
+    --primary: 152 60% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 10% 92%;
+    --secondary-foreground: 225 15% 30%;
+
+    --muted: 220 10% 94%;
+    --muted-foreground: 220 10% 40%;
+
+    --accent: 152 60% 40%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 10% 88%;
+    --input: 220 10% 88%;
+    --ring: 152 60% 40%;
+
+    --radius: 0.75rem;
+
+    --vigil-glow: 152 60% 40%;
+    --vigil-green: 152 60% 50%;
+    --vigil-red: 0 72% 58%;
+    --vigil-surface: 0 0% 96%;
+    --vigil-surface-elevated: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 225 25% 6%;
+    --foreground: 40 20% 92%;
+
+    --card: 225 20% 10%;
+    --card-foreground: 40 20% 92%;
+
+    --popover: 225 20% 10%;
+    --popover-foreground: 40 20% 92%;
+
+    --primary: 152 60% 50%;
+    --primary-foreground: 225 25% 6%;
+
+    --secondary: 225 15% 15%;
+    --secondary-foreground: 40 20% 85%;
+
+    --muted: 225 15% 13%;
+    --muted-foreground: 220 10% 50%;
+
+    --accent: 152 60% 50%;
+    --accent-foreground: 225 25% 6%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 225 15% 18%;
+    --input: 225 15% 18%;
+    --ring: 152 60% 50%;
+
+    --radius: 0.75rem;
+
+    --vigil-glow: 152 60% 50%;
+    --vigil-green: 152 60% 50%;
+    --vigil-red: 0 72% 58%;
+    --vigil-surface: 225 20% 8%;
+    --vigil-surface-elevated: 225 18% 12%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Space Grotesk', sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    text-wrap: balance;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  p {
+    text-wrap: pretty;
+    overflow-wrap: break-word;
+  }
+}
+
+@layer utilities {
+  .font-mono-display {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .text-glow {
+    text-shadow: 0 0 40px hsl(var(--vigil-glow) / 0.4),
+                 0 0 80px hsl(var(--vigil-glow) / 0.15);
+  }
+
+  .box-glow {
+    box-shadow: 0 0 30px hsl(var(--vigil-glow) / 0.15),
+                0 0 60px hsl(var(--vigil-glow) / 0.05);
+  }
+
+  .box-glow-green {
+    box-shadow: 0 0 20px hsl(var(--vigil-green) / 0.2);
+  }
+}
+
+/* Breathing pulse for the vigil eye */
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 0.8; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-12px); }
+}
+
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); filter: blur(4px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; filter: blur(4px); }
+  to { opacity: 1; filter: blur(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-24px); filter: blur(4px); }
+  to { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); filter: blur(4px); }
+  to { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
