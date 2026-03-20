@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vigil Demo</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; color: #111; background: #fafafa; }
+    .card { background: white; border: 1px solid #e5e5e5; border-radius: 12px; padding: 16px; max-width: 920px; }
+    label { display: block; margin: 12px 0 6px; font-weight: 600; }
+    input, button, textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid #dedede; }
+    button { background: #111827; color: white; border: 0; cursor: pointer; margin-top: 14px; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #f8fafc; border: 1px solid #e5e7eb; padding: 12px; border-radius: 10px; }
+    .hint { color: #4b5563; font-size: 13px; margin-top: 6px; line-height: 1.3; }
+  </style>
+</head>
+<body>
+  <h1>Vigil - Your Trading Strategy Never Sleeps</h1>
+
+  <div class="card">
+    <h2>Overnight Learning (Demo)</h2>
+
+    <label for="pineFile">Upload Vigil-compatible PineScript (.pinescript or .txt)</label>
+    <input id="pineFile" type="file" accept=".pinescript,.txt" />
+    <div class="hint">The demo expects a Pine file that includes a line like: <code>// @vigil:template RSIThresholdReversion</code></div>
+
+    <div class="row">
+      <div>
+        <label for="stopLossPct">Stop-loss percent (e.g., 2 means 2%)</label>
+        <input id="stopLossPct" type="number" step="0.01" value="2.00" />
+      </div>
+      <div>
+        <label for="btcSize">Fixed position size cap (BTC)</label>
+        <input id="btcSize" type="number" step="0.0001" value="0.01" />
+      </div>
+    </div>
+
+    <button id="runBtn" disabled>Run Overnight Learning</button>
+    <div class="hint" id="statusText"></div>
+
+    <h3 style="margin-top: 22px;">Overnight Report</h3>
+    <pre id="reportBox">No report yet.</pre>
+    <a id="downloadLink" href="#" style="display:none;">Download Updated PineScript</a>
+  </div>
+
+  <script>
+    const pineFile = document.getElementById('pineFile');
+    const stopLossPct = document.getElementById('stopLossPct');
+    const btcSize = document.getElementById('btcSize');
+    const runBtn = document.getElementById('runBtn');
+    const statusText = document.getElementById('statusText');
+    const reportBox = document.getElementById('reportBox');
+    const downloadLink = document.getElementById('downloadLink');
+
+    let runId = null;
+
+    pineFile.addEventListener('change', () => {
+      runBtn.disabled = !pineFile.files || pineFile.files.length === 0;
+    });
+
+    function setStatus(msg) {
+      statusText.textContent = msg;
+    }
+
+    async function postForm(endpoint, formData) {
+      const res = await fetch(endpoint, { method: 'POST', body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Request failed');
+      return data;
+    }
+
+    runBtn.addEventListener('click', async () => {
+      try {
+        runBtn.disabled = true;
+        downloadLink.style.display = 'none';
+        reportBox.textContent = 'Running...';
+        setStatus('Uploading Pine...');
+
+        const fd = new FormData();
+        fd.append('pine', pineFile.files[0]);
+        const upload = await postForm('/api/upload', fd);
+        runId = upload.run_id;
+
+        setStatus('Starting overnight learning...');
+        const runFd = new FormData();
+        runFd.append('run_id', runId);
+        runFd.append('stop_loss_pct', stopLossPct.value);
+        runFd.append('btc_size', btcSize.value);
+        const runRes = await postForm('/api/run_learning', runFd);
+
+        const startedOk = runRes.ok;
+        if (!startedOk) throw new Error('Learning did not start');
+
+        setStatus('Waiting for report...');
+        // Poll report endpoint.
+        for (let i = 0; i < 60; i++) {
+          const r = await fetch(`/api/report?run_id=${encodeURIComponent(runId)}`);
+          const reportData = await r.json();
+          if (reportData.status === 'completed') {
+            reportBox.textContent = JSON.stringify(reportData.report, null, 2);
+            downloadLink.href = `/api/download_pine?run_id=${encodeURIComponent(runId)}`;
+            downloadLink.style.display = 'inline';
+            setStatus('Done.');
+            return;
+          }
+          if (reportData.status === 'failed') {
+            reportBox.textContent = JSON.stringify(reportData.error, null, 2);
+            setStatus('Failed.');
+            return;
+          }
+          await new Promise(r => setTimeout(r, 2000));
+        }
+        throw new Error('Timed out waiting for report');
+      } catch (e) {
+        reportBox.textContent = e.message || String(e);
+        setStatus('Error.');
+        runBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+
