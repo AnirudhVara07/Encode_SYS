@@ -1,0 +1,23 @@
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  HIGH GEAR PULSE · Vigil demo (leverage-aware workflow)                  ║
+// ║                                                                          ║
+// ║  This file only declares the EMA crossover *template* Vigil can learn.  ║
+// ║  Actual leverage lives in the **web UI** field “Leverage”: the Python   ║
+// ║  backtest scales P&L as  (BTC size × leverage)  on each position.       ║
+// ║                                                                          ║
+// ║  Example: 0.01 BTC notional + 5× UI leverage → same prices/stops as      ║
+// ║  1× but ~5× simulated profit and drawdown in the report.                ║
+// ║  (Coinbase sandbox orders in the demo still submit `btc_size` only.)     ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// @vigil:template EMACrossover
+
+// Optional search grid (omit to use demo defaults)
+// @vigil:range ema_fast 5 18 1
+// @vigil:range ema_slow 22 55 1
+
+ema_fast = input.int(8, "Pulse · fast EMA (react speed)")
+ema_slow = input.int(34, "Pulse · slow EMA (trend backbone)")
+
+// --- Your real Pine on TradingView: golden/death cross entries, your broker leverage. ---
+// --- Here: upload this file, set Stop-loss %, BTC size, **and Leverage** in Vigil UI. ---

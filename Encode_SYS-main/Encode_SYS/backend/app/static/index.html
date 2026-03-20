@@ -1,0 +1,1411 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vigil Demo</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; color: #111; background: #f4f4f5; line-height: 1.45; }
+    .card { background: white; border: 1px solid #e5e5e5; border-radius: 12px; padding: 20px; max-width: 920px; }
+    label { display: block; margin: 12px 0 6px; font-weight: 600; }
+    input, button, textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid #dedede; }
+    button { background: #111827; color: white; border: 0; cursor: pointer; margin-top: 14px; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    button.paper-secondary-btn { background: #fff; color: #111827; border: 1px solid #d1d5db; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #f8fafc; border: 1px solid #e5e7eb; padding: 12px; border-radius: 10px; font-size: 12px; }
+    .hint { color: #4b5563; font-size: 13px; margin-top: 6px; line-height: 1.35; }
+
+    #reportRoot { margin-top: 8px; }
+    .report-empty { color: #6b7280; font-size: 15px; }
+    .report-alert {
+      border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 14px;
+    }
+    .report-alert--warn { background: #fffbeb; border: 1px solid #fcd34d; color: #78350f; }
+    .report-alert--ok { background: #ecfdf5; border: 1px solid #6ee7b7; color: #064e3b; }
+    .report-alert strong { display: block; margin-bottom: 4px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .report-section { margin-bottom: 22px; }
+    .report-section h4 { margin: 0 0 10px; font-size: 15px; color: #374151; }
+    .report-summary {
+      font-size: 15px; color: #1f2937; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px;
+    }
+    .report-meta { display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: 14px; color: #4b5563; margin-bottom: 8px; }
+    .report-meta span { background: #f3f4f6; padding: 4px 10px; border-radius: 999px; }
+    table.report-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    table.report-table th, table.report-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #e5e7eb; }
+    table.report-table th { color: #6b7280; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+    table.report-table tr:last-child td { border-bottom: 0; }
+    .num { font-variant-numeric: tabular-nums; }
+    .delta-pos { color: #047857; }
+    .delta-neg { color: #b45309; }
+    details.report-details { border: 1px solid #e5e7eb; border-radius: 10px; padding: 0 14px; background: #fafafa; }
+    details.report-details summary { cursor: pointer; padding: 12px 0; font-weight: 600; color: #374151; }
+    details.report-details[open] summary { border-bottom: 1px solid #e5e7eb; margin-bottom: 10px; }
+    .trials-wrap { max-height: 280px; overflow: auto; margin-bottom: 12px; }
+    #downloadLink { display: inline-block; margin-top: 12px; font-weight: 600; color: #1d4ed8; }
+    .chart-wrap { position: relative; height: min(320px, 55vw); max-height: 360px; width: 100%; margin-top: 8px; }
+    .chart-slider-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 4px; }
+    .chart-slider-row label { margin: 0; font-weight: 600; font-size: 14px; }
+    .chart-slider-row input[type="range"] { flex: 1; min-width: 140px; max-width: 320px; }
+    .chart-slider-row .hint { margin: 0; }
+    .paper-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 10px; }
+    .paper-toolbar > div { flex: 1; min-width: 120px; }
+    .paper-toolbar button { margin-top: 0; width: auto; min-width: 140px; }
+    .paper-status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin: 14px 0; font-size: 14px; }
+    .paper-stat { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; }
+    .paper-stat b { display: block; font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; }
+    table.paper-fills { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 10px; }
+    table.paper-fills th, table.paper-fills td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+    table.paper-fills th { color: #6b7280; font-size: 11px; text-transform: uppercase; }
+    .chart-wrap-paper { position: relative; height: 220px; width: 100%; margin-top: 12px; }
+    .paper-ap-box { margin-top: 18px; padding: 14px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fafafa; }
+    .paper-ap-box h4 { margin: 0 0 10px 0; font-size: 15px; }
+    .paper-ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; align-items: end; margin-bottom: 12px; }
+    .paper-ap-strategy { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+    .paper-ap-strategy-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .paper-ap-strategy-head input[type="text"] { flex: 1; min-width: 120px; }
+    .paper-ap-params { width: 100%; min-height: 64px; font-family: ui-monospace, monospace; font-size: 12px; }
+    .paper-ap-log { font-family: ui-monospace, monospace; font-size: 11px; max-height: 120px; overflow-y: auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; margin-top: 8px; white-space: pre-wrap; word-break: break-word; }
+    .paper-ap-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .agent-news-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0; }
+    .agent-news-row button { margin-top: 0; }
+    button.agent-icon-btn {
+      width: 44px; min-width: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+    }
+    button.agent-icon-btn svg { display: block; }
+    @media (max-width: 900px) { .row3 { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <h1>Vigil - Your Trading Strategy Never Sleeps</h1>
+
+  <div class="card">
+    <h2>Overnight Learning (Demo)</h2>
+
+    <label for="pineFile">Upload Vigil-compatible PineScript (.pinescript or .txt)</label>
+    <input id="pineFile" type="file" accept=".pinescript,.txt" />
+    <div class="hint">The demo expects a Pine file that includes a line like: <code>// @vigil:template RSIThresholdReversion</code></div>
+
+    <div class="row3">
+      <div>
+        <label for="stopLossPct">Stop-loss percent (e.g., 2 means 2%)</label>
+        <input id="stopLossPct" type="number" step="0.01" value="2.00" />
+      </div>
+      <div>
+        <label for="btcSize">Position size (BTC) per trade</label>
+        <input id="btcSize" type="number" step="0.0001" value="0.01" />
+      </div>
+      <div>
+        <label for="leverage">Leverage (simulated P&amp;L only)</label>
+        <input id="leverage" type="number" step="0.5" min="1" max="125" value="1" />
+      </div>
+    </div>
+    <div class="hint">Leverage scales simulated profit/drawdown as <code>size × leverage</code> BTC exposure. Sandbox orders still use the BTC size above (not levered).</div>
+
+    <button id="runBtn" disabled>Run Overnight Learning</button>
+    <div class="hint" id="statusText"></div>
+
+    <h3 style="margin-top: 22px;">Overnight Report</h3>
+    <div id="reportRoot"><p class="report-empty">No report yet.</p></div>
+    <a id="downloadLink" href="#" style="display:none;">Download Updated PineScript</a>
+  </div>
+
+  <div class="card" style="margin-top: 20px;">
+    <h2>Trading agent (Civic Auth, news, kill switch)</h2>
+    <p class="hint">Protected routes: <code>/status</code>, <code>/start</code>, <code>/stop</code>, <code>/trades</code>, <code>/report</code>, <code>/strategy</code>, <code>/news</code>, <code>WebSocket /ws/feed</code>. Set env vars on the server (see README). Paper trades can be blocked by the global kill switch or rules (e.g. <code>NEWS_STRICT_MODE</code> for Vigil automation).</p>
+
+    <label for="agentBearer">Bearer token (after Civic exchange)</label>
+    <input id="agentBearer" type="password" autocomplete="off" placeholder="Paste access_token from POST /auth" />
+    <div class="row" style="margin-top: 10px;">
+      <div>
+        <label for="agentCivicCode">Civic auth code (optional)</label>
+        <input id="agentCivicCode" type="text" placeholder="Authorization code from Civic redirect" />
+      </div>
+      <div>
+        <label for="agentRedirectUri">Redirect URI (must match Civic app)</label>
+        <input id="agentRedirectUri" type="text" placeholder="Same as CIVIC_REDIRECT_URI" />
+      </div>
+    </div>
+    <button type="button" id="agentExchangeBtn" class="paper-secondary-btn" style="width:auto;margin-top:10px;">Exchange code for token</button>
+
+    <div class="row" style="margin-top: 14px;">
+      <button type="button" id="agentStartBtn" style="margin-top:0;">POST /start (Vigil on)</button>
+      <button type="button" id="agentStopBtn" class="paper-secondary-btn" style="margin-top:0;">POST /stop (kill switch)</button>
+    </div>
+    <button type="button" id="agentUnlockBtn" class="paper-secondary-btn" style="width:auto;margin-top:8px;">POST /unlock (clear kill, no Vigil)</button>
+    <div class="row">
+      <button type="button" id="agentStatusBtn" class="paper-secondary-btn" style="margin-top:0;">GET /status</button>
+      <button type="button" id="agentReportBtn" class="paper-secondary-btn" style="margin-top:0;">GET /report</button>
+    </div>
+    <div class="row agent-news-row">
+      <button type="button" id="agentNewsBtn" class="paper-secondary-btn" style="margin-top:0;">GET /news</button>
+      <button type="button" id="agentNewsRefreshBtn" class="paper-secondary-btn agent-icon-btn" aria-label="Refresh news" title="Refresh news">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      </button>
+    </div>
+    <button type="button" id="agentWsBtn" class="paper-secondary-btn" style="width:auto;margin-top:10px;">Connect WebSocket feed</button>
+
+    <h4 style="margin-top: 16px;">Macro news bar (NewsAPI)</h4>
+    <div id="agentNewsBar" class="hint" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px;min-height:48px;">Sign in and load news.</div>
+
+    <h4 style="margin-top: 16px;">Agent status / report</h4>
+    <pre id="agentOut" style="max-height:220px;overflow:auto;">—</pre>
+    <div class="hint" id="agentMsg"></div>
+  </div>
+
+  <div class="card" style="margin-top: 20px;">
+    <h2>Paper live simulation</h2>
+    <p class="hint">Fake USD + BTC balances. Prices come from Coinbase’s <b>public</b> BTC-USD spot API. Trades execute instantly at the latest quote (demo only — not your real Coinbase account).</p>
+
+    <div class="paper-toolbar">
+      <div>
+        <label for="paperStartingUsd">Starting cash (USD)</label>
+        <input id="paperStartingUsd" type="number" step="1000" min="1000" value="100000" />
+      </div>
+      <button type="button" id="paperResetBtn">Start / reset portfolio</button>
+      <button type="button" id="paperRefreshBtn" class="paper-secondary-btn">Refresh quote</button>
+    </div>
+    <div class="hint" id="paperMsg"></div>
+
+    <div class="paper-ap-box">
+      <h4>Vigil (rule-based automation)</h4>
+      <p class="hint" style="margin-top:0;">Uses the same Vigil template signals as overnight learning on hourly candles. Multiple strategies vote: on each tick, a strategy counts as a <b>buy edge</b> when its signal becomes BUY (was not BUY before), and a <b>sell edge</b> when it becomes SELL. If buy edges &gt; sell edges, Vigil buys <b>buy USD</b>; if sell edges &gt; buy edges, it sells <b>sell fraction</b> of your BTC. Manual Buy/Sell still work. Stop Vigil before saving config.</p>
+      <div class="paper-ap-grid">
+        <div>
+          <label for="paperApInterval">Interval (sec)</label>
+          <input id="paperApInterval" type="number" min="60" step="60" value="300" />
+        </div>
+        <div>
+          <label for="paperApLookback">Candle lookback (h)</label>
+          <input id="paperApLookback" type="number" min="24" max="720" step="24" value="168" />
+        </div>
+        <div>
+          <label for="paperApBuyUsd">Vigil buy (USD)</label>
+          <input id="paperApBuyUsd" type="number" min="1" step="100" value="1000" />
+        </div>
+        <div>
+          <label for="paperApSellFrac">Vigil sell fraction</label>
+          <input id="paperApSellFrac" type="number" min="0.01" max="1" step="0.05" value="0.25" />
+        </div>
+      </div>
+      <div id="paperApStrategies"></div>
+      <div class="paper-ap-btns">
+        <button type="button" id="paperApAddBtn" class="paper-secondary-btn">Add strategy</button>
+        <button type="button" id="paperApSaveBtn">Save Vigil config</button>
+        <button type="button" id="paperApStartBtn">Start Vigil</button>
+        <button type="button" id="paperApStopBtn" class="paper-secondary-btn">Stop Vigil</button>
+      </div>
+      <div class="hint" id="paperApStatusLine" style="margin-top:8px;"></div>
+      <div class="paper-ap-log" id="paperApLog" aria-live="polite"></div>
+    </div>
+
+    <div id="paperStatusPanel" style="display:none;">
+      <div class="paper-status-grid">
+        <div class="paper-stat"><b>USD cash</b><span id="paperUsd">—</span></div>
+        <div class="paper-stat"><b>BTC balance</b><span id="paperBtc">—</span></div>
+        <div class="paper-stat"><b>BTC spot (USD)</b><span id="paperSpot">—</span></div>
+        <div class="paper-stat"><b>Mark equity (USD)</b><span id="paperEq">—</span></div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="paperBuyUsd">Buy (spend USD)</label>
+          <input id="paperBuyUsd" type="number" step="100" min="1" value="1000" />
+          <button type="button" id="paperBuyBtn" style="margin-top:8px;">Buy BTC</button>
+        </div>
+        <div>
+          <label for="paperSellBtc">Sell (BTC amount)</label>
+          <input id="paperSellBtc" type="number" step="0.0001" min="0.00000001" value="0.001" />
+          <button type="button" id="paperSellBtn" style="margin-top:8px;">Sell BTC</button>
+        </div>
+      </div>
+
+      <h4 style="margin-top: 18px;">Equity (mark-to-market)</h4>
+      <div class="chart-wrap-paper"><canvas id="paperEquityChart" aria-label="Paper equity chart"></canvas></div>
+
+      <h4 style="margin-top: 18px;">Recent fills</h4>
+      <div style="overflow-x:auto;">
+        <table class="paper-fills">
+          <thead><tr><th>Time</th><th>Side</th><th>BTC</th><th>USD</th><th>Price</th></tr></thead>
+          <tbody id="paperFillsBody"><tr><td colspan="5">No fills yet.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const pineFile = document.getElementById('pineFile');
+    const stopLossPct = document.getElementById('stopLossPct');
+    const btcSize = document.getElementById('btcSize');
+    const leverageInput = document.getElementById('leverage');
+    const runBtn = document.getElementById('runBtn');
+    const statusText = document.getElementById('statusText');
+    const reportRoot = document.getElementById('reportRoot');
+    const downloadLink = document.getElementById('downloadLink');
+
+    let runId = null;
+
+    pineFile.addEventListener('change', () => {
+      runBtn.disabled = !pineFile.files || pineFile.files.length === 0;
+    });
+
+    function setStatus(msg) {
+      statusText.textContent = msg;
+    }
+
+    function esc(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function fmtUsd(n) {
+      if (n == null || Number.isNaN(Number(n))) return '—';
+      const v = Number(n);
+      const sign = v < 0 ? '−' : '';
+      return sign + '$' + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function fmtWinRate(n) {
+      if (n == null || Number.isNaN(Number(n))) return '—';
+      return (Number(n) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 }) + '%';
+    }
+
+    function fmtInt(n) {
+      if (n == null || Number.isNaN(Number(n))) return '—';
+      return String(Math.round(Number(n)));
+    }
+
+    function deltaClass(n) {
+      if (n == null || Number.isNaN(Number(n)) || Number(n) === 0) return '';
+      return Number(n) > 0 ? 'delta-pos' : 'delta-neg';
+    }
+
+    function fmtDeltaUsd(n) {
+      if (n == null || Number.isNaN(Number(n))) return '—';
+      const v = Number(n);
+      const sign = v > 0 ? '+' : '';
+      return sign + fmtUsd(v);
+    }
+
+    function fmtDeltaPlain(n, kind) {
+      if (n == null || Number.isNaN(Number(n))) return '—';
+      const v = Number(n);
+      const sign = v > 0 ? '+' : '';
+      if (kind === 'pct') return sign + (v * 100).toFixed(1) + ' pp';
+      if (kind === 'int') return sign + String(Math.round(v));
+      return sign + String(v);
+    }
+
+    function reportChartsDestroy() {
+      if (window.__vigilChart) {
+        window.__vigilChart.destroy();
+        window.__vigilChart = null;
+      }
+      if (window.__vigilEquityChart) {
+        window.__vigilEquityChart.destroy();
+        window.__vigilEquityChart = null;
+      }
+      const sl = document.getElementById('optimizerResSlider');
+      if (sl && window.__vigilSliderOnInput) {
+        sl.removeEventListener('input', window.__vigilSliderOnInput);
+        window.__vigilSliderOnInput = null;
+      }
+      window.__vigilOptimizerPointsFull = null;
+    }
+
+    function buildReportCharts(rep) {
+      reportChartsDestroy();
+      const durEl = document.getElementById('chartDurationHint');
+      if (durEl) {
+        const s = rep.learning_duration_seconds;
+        durEl.innerHTML =
+          s != null
+            ? '<b>Time:</b> learning finished in <b>' + esc(String(s)) + 's</b> on the server (grid search + report).'
+            : '';
+      }
+      const canvasOpt = document.getElementById('reportTrajectoryChart');
+      const canvasEq = document.getElementById('reportEquityChart');
+      if (typeof Chart === 'undefined') {
+        if (durEl && !durEl.textContent) {
+          durEl.textContent = 'Chart.js failed to load; see tables below.';
+        }
+        return;
+      }
+
+      const baseline = Number(rep.baseline_metrics?.net_profit_usd ?? 0);
+      const finalBest = Number(rep.best_metrics?.net_profit_usd ?? baseline);
+      const tried = Array.isArray(rep.tried_sample) ? rep.tried_sample : [];
+      const tStart = Number(rep.learning_started_at_unix);
+      const durSec = Math.max(Number(rep.learning_duration_seconds) || 1, 0.001);
+
+      const usdFmt = (v) => {
+        if (!Number.isFinite(v)) return '—';
+        const sign = v < 0 ? '−' : '';
+        return sign + '$' + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      };
+
+      const timeTick = (ms) => {
+        const d = new Date(ms);
+        return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      };
+
+      const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              title: (items) => {
+                if (!items.length) return '';
+                const x = items[0].parsed.x;
+                if (x == null || !Number.isFinite(x)) return '';
+                return new Date(x).toLocaleString();
+              },
+              label: (ctx) => {
+                const v = ctx.parsed.y;
+                if (v == null || !Number.isFinite(v)) return ctx.dataset.label + ': —';
+                return ctx.dataset.label + ': ' + usdFmt(v);
+              },
+            },
+          },
+        },
+      };
+
+      function yExtent(values) {
+        const nums = values.filter((x) => Number.isFinite(x));
+        if (nums.length === 0) return { min: -1, max: 1 };
+        const lo = Math.min(...nums);
+        const hi = Math.max(...nums);
+        if (Math.abs(hi - lo) < 1e-9) return { min: lo - 1, max: hi + 1 };
+        const pad = (hi - lo) * 0.12 + Math.max(1, Math.abs(hi) * 0.02);
+        return { min: lo - pad, max: hi + pad };
+      }
+
+      function downsampleByResolution(points, pct) {
+        if (!points.length) return [];
+        if (pct >= 99.5 || points.length <= 2) return points.slice();
+        const target = Math.max(2, Math.round((points.length * pct) / 100));
+        const step = Math.max(1, Math.floor((points.length - 1) / (target - 1)));
+        const out = [];
+        for (let i = 0; i < points.length; i += step) out.push(points[i]);
+        const last = points[points.length - 1];
+        if (out[out.length - 1].x !== last.x) out.push(last);
+        return out;
+      }
+
+      function stepTimeMs(k, nSteps) {
+        if (!Number.isFinite(tStart)) return k * 1000;
+        if (nSteps <= 1) return tStart * 1000;
+        return (tStart + (k / (nSteps - 1)) * durSec) * 1000;
+      }
+
+      const slider = document.getElementById('optimizerResSlider');
+      const sliderLabel = document.getElementById('optimizerResLabel');
+      const sliderRow = document.getElementById('optimizerSliderRow');
+
+      function drawOptimizerChart(points) {
+        if (!canvasOpt) return;
+        if (window.__vigilChart) window.__vigilChart.destroy();
+        const ys = points.map((p) => p.y);
+        const ye = yExtent(ys);
+        const n = points.length;
+        window.__vigilChart = new Chart(canvasOpt.getContext('2d'), {
+          type: 'line',
+          data: {
+            datasets: [
+              {
+                label: 'Net profit at this optimizer step (USD)',
+                data: points,
+                parsing: false,
+                borderColor: 'rgb(37, 99, 235)',
+                backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                borderWidth: 2,
+                tension: 0.25,
+                fill: true,
+                pointRadius: (ctx) => (ctx.dataIndex === 0 || ctx.dataIndex === n - 1 ? 6 : 0),
+                pointHoverRadius: 8,
+                pointBackgroundColor: 'rgb(37, 99, 235)',
+              },
+            ],
+          },
+          options: {
+            ...commonOptions,
+            scales: {
+              x: {
+                type: 'linear',
+                title: { display: true, text: 'Approx. wall time during this learning run' },
+                ticks: {
+                  maxTicksLimit: 10,
+                  callback: (v) => (Number.isFinite(v) ? timeTick(v) : ''),
+                },
+              },
+              y: {
+                title: { display: true, text: 'Simulated net profit (USD)' },
+                min: ye.min,
+                max: ye.max,
+                ticks: { callback: (v) => '$' + Number(v).toLocaleString() },
+              },
+            },
+          },
+        });
+      }
+
+      if (tried.length === 0) {
+        if (sliderRow) sliderRow.style.display = 'none';
+        if (canvasOpt) {
+          const t0 = Number.isFinite(tStart) ? tStart * 1000 : 0;
+          const t1 = Number.isFinite(tStart) ? (tStart + durSec) * 1000 : 1000;
+          const ye = yExtent([baseline, finalBest]);
+          window.__vigilChart = new Chart(canvasOpt.getContext('2d'), {
+            type: 'line',
+            data: {
+              datasets: [
+                {
+                  label: 'Initial → final net profit (USD)',
+                  data: [
+                    { x: t0, y: baseline },
+                    { x: t1, y: finalBest },
+                  ],
+                  parsing: false,
+                  borderColor: 'rgb(37, 99, 235)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                  borderWidth: 2,
+                  tension: 0,
+                  fill: true,
+                  pointRadius: 6,
+                  pointBackgroundColor: 'rgb(37, 99, 235)',
+                },
+              ],
+            },
+            options: {
+              ...commonOptions,
+              scales: {
+                x: {
+                  type: 'linear',
+                  title: { display: true, text: 'Start → end of learning window' },
+                  ticks: { callback: (v) => (Number.isFinite(v) ? timeTick(v) : '') },
+                },
+                y: {
+                  title: { display: true, text: 'Net profit (USD)' },
+                  min: ye.min,
+                  max: ye.max,
+                  ticks: { callback: (v) => '$' + Number(v).toLocaleString() },
+                },
+              },
+            },
+          });
+        }
+      } else {
+        if (sliderRow) sliderRow.style.display = '';
+        const perY = [baseline];
+        const nSteps = tried.length + 1;
+        for (let i = 0; i < tried.length; i++) {
+          const p = Number(tried[i].metrics?.net_profit_usd);
+          perY.push(Number.isFinite(p) ? p : baseline);
+        }
+        const fullPoints = perY.map((y, k) => ({ x: stepTimeMs(k, nSteps), y }));
+        window.__vigilOptimizerPointsFull = fullPoints;
+
+        const applyResolution = () => {
+          const pct = slider ? Math.min(100, Math.max(15, Number(slider.value))) : 100;
+          if (sliderLabel) {
+            sliderLabel.textContent =
+              pct >= 100 ? 'Showing all ' + fullPoints.length + ' points' : 'Showing ~' + Math.max(2, Math.round((fullPoints.length * pct) / 100)) + ' of ' + fullPoints.length + ' points';
+          }
+          drawOptimizerChart(downsampleByResolution(fullPoints, pct));
+        };
+
+        applyResolution();
+        if (slider) {
+          window.__vigilSliderOnInput = applyResolution;
+          slider.addEventListener('input', window.__vigilSliderOnInput);
+        }
+      }
+
+      /* Equity vs candle time */
+      const eqSec = document.getElementById('reportEquitySection');
+      if (!canvasEq || !Array.isArray(rep.equity_curve_best) || !rep.equity_curve_best.length) {
+        if (eqSec) eqSec.style.display = 'none';
+      } else {
+        if (eqSec) eqSec.style.display = '';
+        const toPts = (arr) =>
+          arr
+            .map((row) => {
+              const t = Number(row.t);
+              const y = Number(row.equity_usd);
+              if (!Number.isFinite(t) || !Number.isFinite(y)) return null;
+              return { x: t * 1000, y };
+            })
+            .filter(Boolean);
+
+        const bestPts = toPts(rep.equity_curve_best);
+        const basePts = Array.isArray(rep.equity_curve_baseline) ? toPts(rep.equity_curve_baseline) : [];
+        const allY = [...bestPts, ...basePts].map((p) => p.y);
+        const ye = yExtent(allY);
+
+        const eqDatasets = [];
+        if (basePts.length) {
+          eqDatasets.push({
+            label: 'Baseline params (equity)',
+            data: basePts,
+            parsing: false,
+            borderColor: 'rgba(107, 114, 128, 0.75)',
+            borderDash: [6, 4],
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.15,
+            fill: false,
+          });
+        }
+        eqDatasets.push({
+          label: 'Best params (equity)',
+          data: bestPts,
+          parsing: false,
+          borderColor: 'rgb(5, 150, 105)',
+          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.15,
+          fill: true,
+        });
+
+        window.__vigilEquityChart = new Chart(canvasEq.getContext('2d'), {
+          type: 'line',
+          data: { datasets: eqDatasets },
+          options: {
+            ...commonOptions,
+            scales: {
+              x: {
+                type: 'linear',
+                title: { display: true, text: 'Candle time (from data feed)' },
+                ticks: {
+                  maxTicksLimit: 8,
+                  callback: (v) => (Number.isFinite(v) ? timeTick(v) : ''),
+                },
+              },
+              y: {
+                title: { display: true, text: 'Simulated equity (USD)' },
+                min: ye.min,
+                max: ye.max,
+                ticks: { callback: (v) => '$' + Number(v).toLocaleString() },
+              },
+            },
+          },
+        });
+      }
+    }
+
+    function renderReport(rep) {
+      reportChartsDestroy();
+      if (!rep || typeof rep !== 'object') {
+        reportRoot.innerHTML = '<p class="report-empty">No report data.</p>';
+        return;
+      }
+
+      const src = rep.data_source || '';
+      const warn = rep.data_warning;
+      let alerts = '';
+
+      if (src === 'synthetic_fallback' || warn) {
+        alerts += '<div class="report-alert report-alert--warn">';
+        alerts += '<strong>Data source</strong>';
+        if (src === 'synthetic_fallback') {
+          alerts += '<div>Results use <b>fake synthetic price bars</b>, not live Coinbase history. Treat all profit, drawdown, and “best parameters” as a <b>UI demo only</b>—not trading advice.</div>';
+        }
+        if (warn) {
+          alerts += '<div style="margin-top:8px"><b>API note:</b> ' + esc(warn) + '</div>';
+        }
+        alerts += '</div>';
+      } else if (src) {
+        alerts += '<div class="report-alert report-alert--ok"><strong>Data source</strong><div>Using market candle data (<code>' + esc(src) + '</code>).</div></div>';
+      }
+
+      const meta = `
+        <div class="report-meta">
+          <span>Template: <b>${esc(rep.template_type || '—')}</b></span>
+          <span>Stop-loss: <b>${esc(rep.stop_loss_pct)}%</b></span>
+          <span>Size: <b>${esc(rep.btc_size)} BTC</b> / trade</span>
+          <span>Leverage: <b>${esc(rep.leverage != null ? rep.leverage : 1)}×</b> <span style="opacity:0.85">(sim)</span></span>
+        </div>`;
+
+      const paramKeys = Object.keys(rep.best_params || rep.baseline_params || {});
+      let paramRows = '';
+      for (const k of paramKeys.sort()) {
+        const b = rep.baseline_params && rep.baseline_params[k];
+        const best = rep.best_params && rep.best_params[k];
+        paramRows += `<tr><td><code>${esc(k)}</code></td><td class="num">${esc(b)}</td><td class="num"><b>${esc(best)}</b></td></tr>`;
+      }
+
+      const bm = rep.baseline_metrics || {};
+      const om = rep.best_metrics || {};
+      const dm = rep.delta_metrics || {};
+
+      function deltaCellClass(kind) {
+        if (kind === 'usd') return deltaClass(dm.net_profit_usd);
+        if (kind === 'int') return '';
+        if (kind === 'pct') return deltaClass(dm.win_rate);
+        if (kind === 'dd') {
+          const v = dm.max_drawdown_usd;
+          if (v == null || Number(v) === 0) return '';
+          return Number(v) < 0 ? 'delta-pos' : 'delta-neg';
+        }
+        return '';
+      }
+
+      const metricRows = [
+        ['Net profit (simulated)', fmtUsd(bm.net_profit_usd), fmtUsd(om.net_profit_usd), fmtDeltaUsd(dm.net_profit_usd), 'usd'],
+        ['Number of trades', fmtInt(bm.trade_count), fmtInt(om.trade_count), fmtDeltaPlain(dm.trade_count, 'int'), 'int'],
+        ['Win rate', fmtWinRate(bm.win_rate), fmtWinRate(om.win_rate), fmtDeltaPlain(dm.win_rate, 'pct'), 'pct'],
+        ['Max drawdown (simulated)', fmtUsd(bm.max_drawdown_usd), fmtUsd(om.max_drawdown_usd), fmtDeltaUsd(dm.max_drawdown_usd), 'dd'],
+      ];
+
+      let mHtml = '';
+      for (const [label, b, o, d, kind] of metricRows) {
+        const dClass = deltaCellClass(kind);
+        mHtml += `<tr><td>${esc(label)}</td><td class="num">${b}</td><td class="num"><b>${o}</b></td><td class="num ${dClass}">${d}</td></tr>`;
+      }
+
+      const summaryText = rep.improvements_text || '';
+
+      let trialsHtml = '';
+      const tried = rep.tried_sample;
+      if (Array.isArray(tried) && tried.length) {
+        const show = tried.slice(0, 25);
+        for (const t of show) {
+          const p = t.params || {};
+          const m = t.metrics || {};
+          const pk = Object.keys(p).sort().map(k => k + '=' + p[k]).join(', ');
+          trialsHtml += `<tr><td class="num" style="white-space:nowrap"><code>${esc(pk)}</code></td>
+            <td class="num">${fmtUsd(m.net_profit_usd)}</td>
+            <td class="num">${fmtInt(m.trade_count)}</td>
+            <td class="num">${fmtWinRate(m.win_rate)}</td>
+            <td class="num">${fmtUsd(m.max_drawdown_usd)}</td></tr>`;
+        }
+        if (tried.length > show.length) {
+          trialsHtml += `<tr><td colspan="5" style="color:#6b7280;font-size:13px">… and ${tried.length - show.length} more trials (see raw JSON).</td></tr>`;
+        }
+      }
+
+      let execHtml = '';
+      if (rep.execution == null) {
+        execHtml = '<p style="margin:0;color:#6b7280;font-size:14px">No sandbox order was sent. Set <code>COINBASE_BEARER_JWT</code> to enable optional Coinbase sandbox execution.</p>';
+      } else {
+        execHtml = '<pre style="margin:0">' + esc(JSON.stringify(rep.execution, null, 2)) + '</pre>';
+      }
+
+      reportRoot.innerHTML =
+        alerts +
+        meta +
+        `<div class="report-section" id="reportChartsSection">
+          <h4>Optimizer profit (time axis)</h4>
+          <p class="hint" id="chartDurationHint"></p>
+          <div class="chart-slider-row" id="optimizerSliderRow">
+            <label for="optimizerResSlider">Resolution</label>
+            <input type="range" id="optimizerResSlider" min="15" max="100" value="100" step="1" />
+            <span id="optimizerResLabel" class="hint"></span>
+          </div>
+          <div class="chart-wrap"><canvas id="reportTrajectoryChart" aria-label="Optimizer timeline chart"></canvas></div>
+          <p class="hint">X-axis maps optimizer steps onto the <b>wall-clock learning window</b> (start → start+duration). The slider thins points for a coarser timeline. Y = simulated net profit for that parameter set.</p>
+        </div>
+        <div class="report-section" id="reportEquitySection">
+          <h4>Equity over market time (simulated)</h4>
+          <div class="chart-wrap"><canvas id="reportEquityChart" aria-label="Equity curve chart"></canvas></div>
+          <p class="hint">Mark-to-market P&amp;L in USD at each candle: <b>gray</b> = your uploaded defaults, <b>green</b> = learned best parameters. Uses candle timestamps from the feed.</p>
+        </div>` +
+        (summaryText ? `<div class="report-section"><h4>What changed</h4><div class="report-summary">${esc(summaryText)}</div></div>` : '') +
+        `<div class="report-section"><h4>Parameters: your file vs learned defaults</h4>
+          <table class="report-table"><thead><tr><th>Parameter</th><th>Before (your upload)</th><th>After (best in grid)</th></tr></thead><tbody>${paramRows}</tbody></table>
+          <p class="hint" style="margin-top:8px">The downloadable Pine file updates these <code>input()</code> defaults so TradingView opens with the learned values.</p>
+        </div>` +
+        `<div class="report-section"><h4>Simulated performance</h4>
+          <table class="report-table"><thead><tr><th>Metric</th><th>Baseline</th><th>Optimized</th><th>Change</th></tr></thead><tbody>${mHtml}</tbody></table>
+          <p class="hint" style="margin-top:8px">“Change” for drawdown: negative dollars here means drawdown got smaller (usually better). Win rate change is in percentage points (pp).</p>
+        </div>` +
+        (trialsHtml
+          ? `<div class="report-section"><details class="report-details"><summary>Sample of parameter trials (${tried.length})</summary>
+            <div class="trials-wrap"><table class="report-table"><thead><tr><th>Params</th><th>Net profit</th><th>Trades</th><th>Win %</th><th>Max DD</th></tr></thead><tbody>${trialsHtml}</tbody></table></div></details></div>`
+          : '') +
+        `<div class="report-section"><h4>Execution</h4>${execHtml}</div>` +
+        `<details class="report-details"><summary>Raw JSON (for debugging)</summary><pre>${esc(JSON.stringify(rep, null, 2))}</pre></details>`;
+
+      buildReportCharts(rep);
+    }
+
+    async function postForm(endpoint, formData) {
+      const res = await fetch(endpoint, { method: 'POST', body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Request failed');
+      return data;
+    }
+
+    runBtn.addEventListener('click', async () => {
+      try {
+        runBtn.disabled = true;
+        downloadLink.style.display = 'none';
+        reportChartsDestroy();
+        reportRoot.innerHTML = '<p class="report-empty">Running…</p>';
+        setStatus('Uploading Pine…');
+
+        const fd = new FormData();
+        fd.append('pine', pineFile.files[0]);
+        const upload = await postForm('/api/upload', fd);
+        runId = upload.run_id;
+
+        setStatus('Starting overnight learning…');
+        const runFd = new FormData();
+        runFd.append('run_id', runId);
+        runFd.append('stop_loss_pct', stopLossPct.value);
+        runFd.append('btc_size', btcSize.value);
+        runFd.append('leverage', leverageInput.value || '1');
+        const runRes = await postForm('/api/run_learning', runFd);
+
+        const startedOk = runRes.ok;
+        if (!startedOk) throw new Error('Learning did not start');
+
+        setStatus('Waiting for report…');
+        for (let i = 0; i < 60; i++) {
+          const r = await fetch(`/api/report?run_id=${encodeURIComponent(runId)}`);
+          const reportData = await r.json();
+          if (reportData.status === 'completed') {
+            renderReport(reportData.report);
+            downloadLink.href = `/api/download_pine?run_id=${encodeURIComponent(runId)}`;
+            downloadLink.style.display = 'inline';
+            setStatus('Done.');
+            runBtn.disabled = false;
+            return;
+          }
+          if (reportData.status === 'failed') {
+            const err = reportData.error || {};
+            reportRoot.innerHTML = '<div class="report-alert report-alert--warn"><strong>Run failed</strong><div>' + esc(err.message || JSON.stringify(err)) + '</div></div>';
+            setStatus('Failed.');
+            runBtn.disabled = false;
+            return;
+          }
+          await new Promise(r2 => setTimeout(r2, 2000));
+        }
+        throw new Error('Timed out waiting for report');
+      } catch (e) {
+        reportRoot.innerHTML = '<div class="report-alert report-alert--warn"><strong>Error</strong><div>' + esc(e.message || String(e)) + '</div></div>';
+        setStatus('Error.');
+        runBtn.disabled = false;
+      }
+    });
+
+    /* --- Paper live simulation --- */
+    const paperMsg = document.getElementById('paperMsg');
+    const paperStatusPanel = document.getElementById('paperStatusPanel');
+    const paperResetBtn = document.getElementById('paperResetBtn');
+    const paperRefreshBtn = document.getElementById('paperRefreshBtn');
+    const paperBuyBtn = document.getElementById('paperBuyBtn');
+    const paperSellBtn = document.getElementById('paperSellBtn');
+    let paperChart = null;
+    let paperPollId = null;
+    let paperApPollId = null;
+
+    const AP_TEMPLATE_OPTIONS = [
+      'RSIThresholdReversion',
+      'RSICrossTrendFilter',
+      'EMACrossover',
+    ];
+    const AP_PARAMS_DEFAULTS = {
+      RSIThresholdReversion: { rsi_len: 14, rsi_lower: 30, rsi_upper: 70 },
+      RSICrossTrendFilter: { rsi_len: 14, rsi_lower: 30, rsi_upper: 70, ema_len: 50 },
+      EMACrossover: { ema_fast: 10, ema_slow: 30 },
+    };
+
+    function paperApSetLine(text, isErr) {
+      const el = document.getElementById('paperApStatusLine');
+      if (!el) return;
+      el.textContent = text || '';
+      el.style.color = isErr ? '#b45309' : '#6b7280';
+    }
+
+    function paperApStopPoll() {
+      if (paperApPollId) {
+        clearInterval(paperApPollId);
+        paperApPollId = null;
+      }
+    }
+
+    function paperApStartPoll() {
+      paperApStopPoll();
+      paperApPollId = setInterval(() => {
+        paperApRefreshStatus().catch(() => {});
+      }, 5000);
+    }
+
+    async function paperPutJson(url, body) {
+      const r = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(paperApiErr(data) || r.statusText);
+      return data;
+    }
+
+    function paperApStrategyRowHtml(id) {
+      const opts = AP_TEMPLATE_OPTIONS.map((t) => `<option value="${t}">${t}</option>`).join('');
+      return `<div class="paper-ap-strategy" data-strategy-id="${esc(id)}">
+        <div class="paper-ap-strategy-head">
+          <input type="text" class="paper-ap-name" placeholder="Name" />
+          <select class="paper-ap-template">${opts}</select>
+          <label style="font-size:13px;white-space:nowrap;"><input type="checkbox" class="paper-ap-enabled" checked /> On</label>
+          <button type="button" class="paper-secondary-btn paper-ap-remove">Remove</button>
+        </div>
+        <label style="font-size:12px;color:#6b7280;">Params (JSON)</label>
+        <textarea class="paper-ap-params" spellcheck="false"></textarea>
+      </div>`;
+    }
+
+    function paperApWireRow(rowEl) {
+      const sel = rowEl.querySelector('.paper-ap-template');
+      const ta = rowEl.querySelector('.paper-ap-params');
+      const applyDefaults = () => {
+        const t = sel.value;
+        ta.value = JSON.stringify(AP_PARAMS_DEFAULTS[t] || {}, null, 0);
+      };
+      sel.addEventListener('change', applyDefaults);
+      rowEl.querySelector('.paper-ap-remove').addEventListener('click', () => {
+        rowEl.remove();
+      });
+      if (!ta.value.trim()) applyDefaults();
+    }
+
+    function paperApAddRow(partial) {
+      const wrap = document.getElementById('paperApStrategies');
+      const id = partial && partial.id ? partial.id : `st-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      wrap.insertAdjacentHTML('beforeend', paperApStrategyRowHtml(id));
+      const rowEl = wrap.lastElementChild;
+      if (!rowEl) return;
+      if (partial) {
+        rowEl.querySelector('.paper-ap-name').value = partial.name || '';
+        rowEl.querySelector('.paper-ap-template').value = partial.template_type || AP_TEMPLATE_OPTIONS[0];
+        rowEl.querySelector('.paper-ap-enabled').checked = partial.enabled !== false;
+        const t = rowEl.querySelector('.paper-ap-template').value;
+        rowEl.querySelector('.paper-ap-params').value = JSON.stringify(
+          partial.params != null ? partial.params : AP_PARAMS_DEFAULTS[t] || {},
+          null,
+          0,
+        );
+      }
+      paperApWireRow(rowEl);
+    }
+
+    function paperApCollectStrategies() {
+      const wrap = document.getElementById('paperApStrategies');
+      const rows = wrap.querySelectorAll('.paper-ap-strategy');
+      const out = [];
+      rows.forEach((rowEl) => {
+        const id = rowEl.getAttribute('data-strategy-id');
+        const name = rowEl.querySelector('.paper-ap-name').value.trim();
+        const template_type = rowEl.querySelector('.paper-ap-template').value;
+        const enabled = rowEl.querySelector('.paper-ap-enabled').checked;
+        let params;
+        try {
+          params = JSON.parse(rowEl.querySelector('.paper-ap-params').value || '{}');
+        } catch (e) {
+          throw new Error(`Invalid JSON in strategy ${id}: ${e.message}`);
+        }
+        out.push({ id, name, template_type, enabled, params });
+      });
+      return out;
+    }
+
+    function paperApClearStrategies() {
+      document.getElementById('paperApStrategies').innerHTML = '';
+    }
+
+    function paperApFillFormFromStatus(d) {
+      if (!d) return;
+      document.getElementById('paperApInterval').value = String(Math.round(Number(d.interval_sec) || 300));
+      document.getElementById('paperApLookback').value = String(d.lookback_hours || 168);
+      document.getElementById('paperApBuyUsd').value = String(d.buy_usd || 1000);
+      document.getElementById('paperApSellFrac').value = String(d.sell_fraction || 0.25);
+      paperApClearStrategies();
+      const strategies = d.strategies || [];
+      if (!strategies.length) {
+        paperApAddRow(null);
+      } else {
+        strategies.forEach((s) =>
+          paperApAddRow({
+            id: s.id,
+            name: s.name,
+            template_type: s.template_type,
+            enabled: s.enabled,
+            params: s.params,
+          }),
+        );
+      }
+    }
+
+    function paperApRenderLog(log) {
+      const el = document.getElementById('paperApLog');
+      if (!el) return;
+      const lines = (log || []).slice(-12);
+      el.textContent = lines
+        .map((e) => {
+          const t = e.t ? new Date(e.t * 1000).toLocaleTimeString() : '';
+          return `[${t}] ${e.message || ''}`;
+        })
+        .join('\n');
+    }
+
+    async function paperApRefreshStatus() {
+      const r = await fetch('/api/paper/autopilot');
+      if (!r.ok) return null;
+      const d = await r.json();
+      const err = d.last_error ? ` Last error: ${d.last_error}` : '';
+      const tick = d.last_tick_unix ? ` Last tick: ${new Date(d.last_tick_unix * 1000).toLocaleString()}.` : '';
+      paperApSetLine(
+        (d.running ? 'Vigil running.' : 'Vigil stopped.') + tick + err,
+        !!d.last_error,
+      );
+      paperApRenderLog(d.log);
+      if (d.running && !paperApPollId) paperApStartPoll();
+      if (!d.running) paperApStopPoll();
+      return d;
+    }
+
+    async function paperApLoad() {
+      try {
+        const r = await fetch('/api/paper/autopilot');
+        if (!r.ok) return;
+        const d = await r.json();
+        paperApFillFormFromStatus(d);
+        paperApRenderLog(d.log);
+        const err = d.last_error ? ` Last error: ${d.last_error}` : '';
+        const tick = d.last_tick_unix ? ` Last tick: ${new Date(d.last_tick_unix * 1000).toLocaleString()}.` : '';
+        paperApSetLine(
+          (d.running ? 'Vigil running.' : 'Vigil stopped.') + tick + err,
+          !!d.last_error,
+        );
+        if (d.running) paperApStartPoll();
+      } catch (_) {}
+    }
+
+    document.getElementById('paperApAddBtn').addEventListener('click', () => {
+      paperApAddRow(null);
+    });
+    document.getElementById('paperApSaveBtn').addEventListener('click', async () => {
+      try {
+        const strategies = paperApCollectStrategies();
+        const body = {
+          interval_sec: Number(document.getElementById('paperApInterval').value) || 300,
+          lookback_hours: Number(document.getElementById('paperApLookback').value) || 168,
+          buy_usd: Number(document.getElementById('paperApBuyUsd').value) || 1000,
+          sell_fraction: Number(document.getElementById('paperApSellFrac').value) || 0.25,
+          strategies,
+        };
+        const d = await paperPutJson('/api/paper/autopilot/config', body);
+        paperApFillFormFromStatus(d);
+        paperApSetLine('Vigil config saved.', false);
+        await paperApRefreshStatus();
+      } catch (e) {
+        paperApSetLine(e.message || String(e), true);
+      }
+    });
+    document.getElementById('paperApStartBtn').addEventListener('click', async () => {
+      try {
+        const d = await paperPostJson('/api/paper/autopilot/start', {});
+        paperApFillFormFromStatus(d);
+        paperApSetLine('Vigil started.', false);
+        await paperApRefreshStatus();
+      } catch (e) {
+        paperApSetLine(e.message || String(e), true);
+      }
+    });
+    document.getElementById('paperApStopBtn').addEventListener('click', async () => {
+      try {
+        const d = await paperPostJson('/api/paper/autopilot/stop', {});
+        paperApFillFormFromStatus(d);
+        paperApSetLine('Vigil stopped.', false);
+        await paperApRefreshStatus();
+      } catch (e) {
+        paperApSetLine(e.message || String(e), true);
+      }
+    });
+
+    function paperSetMsg(text, isErr) {
+      paperMsg.textContent = text || '';
+      paperMsg.style.color = isErr ? '#b45309' : '#4b5563';
+    }
+
+    function drawPaperEquityChart(curve) {
+      const canvas = document.getElementById('paperEquityChart');
+      if (!canvas || typeof Chart === 'undefined') return;
+      const pts = (curve || []).map((p) => ({ x: (Number(p.t) || 0) * 1000, y: Number(p.usd_equity) }));
+      if (paperChart) {
+        paperChart.destroy();
+        paperChart = null;
+      }
+      if (pts.length === 0) return;
+      const ys = pts.map((p) => p.y);
+      const lo = Math.min(...ys);
+      const hi = Math.max(...ys);
+      const pad = Math.max((hi - lo) * 0.1, 25);
+      paperChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          datasets: [
+            {
+              label: 'USD equity (mark)',
+              data: pts,
+              parsing: false,
+              borderColor: 'rgb(5, 150, 105)',
+              backgroundColor: 'rgba(16, 185, 129, 0.12)',
+              fill: true,
+              tension: 0.25,
+              pointRadius: 0,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'nearest', axis: 'x', intersect: false },
+          plugins: {
+            tooltip: {
+              callbacks: {
+                title: (items) =>
+                  items.length && items[0].parsed.x != null
+                    ? new Date(items[0].parsed.x).toLocaleString()
+                    : '',
+              },
+            },
+          },
+          scales: {
+            x: {
+              type: 'linear',
+              title: { display: true, text: 'Time' },
+              ticks: {
+                maxTicksLimit: 6,
+                callback: (v) => (Number.isFinite(v) ? new Date(v).toLocaleTimeString() : ''),
+              },
+            },
+            y: {
+              title: { display: true, text: 'USD' },
+              min: lo - pad,
+              max: hi + pad,
+              ticks: { callback: (v) => '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) },
+            },
+          },
+        },
+      });
+    }
+
+    function renderPaperFromJson(d) {
+      if (!d || !d.started) {
+        paperStatusPanel.style.display = 'none';
+        return;
+      }
+      paperStatusPanel.style.display = 'block';
+      document.getElementById('paperUsd').textContent = fmtUsd(d.usd_cash);
+      document.getElementById('paperBtc').textContent =
+        d.btc_balance != null ? Number(d.btc_balance).toLocaleString(undefined, { maximumFractionDigits: 8 }) : '—';
+      document.getElementById('paperSpot').textContent =
+        d.last_btc_price_usd != null ? fmtUsd(d.last_btc_price_usd) : '—';
+      document.getElementById('paperEq').textContent =
+        d.usd_equity_mark != null ? fmtUsd(d.usd_equity_mark) : '—';
+
+      const tb = document.getElementById('paperFillsBody');
+      const fills = d.fills || [];
+      if (!fills.length) {
+        tb.innerHTML = '<tr><td colspan="5">No fills yet.</td></tr>';
+      } else {
+        tb.innerHTML = fills
+          .map((f) => {
+            const t = f.ts ? new Date(f.ts * 1000).toLocaleString() : '—';
+            return `<tr><td>${esc(t)}</td><td>${esc(f.side)}</td><td class="num">${esc(f.btc)}</td><td class="num">${esc(
+              f.usd,
+            )}</td><td class="num">${esc(f.price)}</td></tr>`;
+          })
+          .join('');
+      }
+      drawPaperEquityChart(d.equity_curve);
+    }
+
+    function stopPaperPoll() {
+      if (paperPollId) {
+        clearInterval(paperPollId);
+        paperPollId = null;
+      }
+    }
+
+    function startPaperPoll() {
+      stopPaperPoll();
+      paperPollId = setInterval(async () => {
+        try {
+          const r = await fetch('/api/paper/quote');
+          if (!r.ok) return;
+          const d = await r.json();
+          renderPaperFromJson(d);
+        } catch (_) {}
+      }, 10000);
+    }
+
+    function paperApiErr(data) {
+      const d = data.detail;
+      if (typeof d === 'string') return d;
+      if (Array.isArray(d)) return d.map((x) => x.msg || JSON.stringify(x)).join('; ');
+      return 'Request failed';
+    }
+
+    async function paperPostJson(url, body) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(paperApiErr(data) || r.statusText);
+      return data;
+    }
+
+    paperResetBtn.addEventListener('click', async () => {
+      try {
+        paperSetMsg('Resetting…');
+        const starting = Math.max(1000, Number(document.getElementById('paperStartingUsd').value) || 100000);
+        const d = await paperPostJson('/api/paper/reset', { starting_usd: starting });
+        renderPaperFromJson(d);
+        paperSetMsg('Portfolio started. Quotes refresh every 10s (or use Refresh).');
+        startPaperPoll();
+      } catch (e) {
+        paperSetMsg(e.message || String(e), true);
+      }
+    });
+
+    paperRefreshBtn.addEventListener('click', async () => {
+      try {
+        const r = await fetch('/api/paper/quote');
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(paperApiErr(data) || 'Quote failed');
+        renderPaperFromJson(data);
+        paperSetMsg('Quote updated.');
+      } catch (e) {
+        paperSetMsg(e.message || String(e), true);
+      }
+    });
+
+    paperBuyBtn.addEventListener('click', async () => {
+      try {
+        const usd = Number(document.getElementById('paperBuyUsd').value);
+        const d = await paperPostJson('/api/paper/trade', { side: 'buy', usd });
+        renderPaperFromJson(d);
+        paperSetMsg('Buy filled at latest spot.');
+      } catch (e) {
+        paperSetMsg(e.message || String(e), true);
+      }
+    });
+
+    paperSellBtn.addEventListener('click', async () => {
+      try {
+        const btc = Number(document.getElementById('paperSellBtc').value);
+        const d = await paperPostJson('/api/paper/trade', { side: 'sell', btc });
+        renderPaperFromJson(d);
+        paperSetMsg('Sell filled at latest spot.');
+      } catch (e) {
+        paperSetMsg(e.message || String(e), true);
+      }
+    });
+
+    /* --- Trading agent (Civic + kill switch + news + WS) --- */
+    const AGENT_TOKEN_KEY = 'vigil_agent_bearer';
+    const agentBearerEl = document.getElementById('agentBearer');
+    const agentOutEl = document.getElementById('agentOut');
+    const agentMsgEl = document.getElementById('agentMsg');
+    const agentNewsBarEl = document.getElementById('agentNewsBar');
+    let agentWs = null;
+
+    try {
+      agentBearerEl.value = localStorage.getItem(AGENT_TOKEN_KEY) || '';
+    } catch (_) {}
+
+    agentBearerEl.addEventListener('change', () => {
+      try {
+        localStorage.setItem(AGENT_TOKEN_KEY, agentBearerEl.value.trim());
+      } catch (_) {}
+    });
+
+    function agentSetMsg(text, isErr) {
+      agentMsgEl.textContent = text || '';
+      agentMsgEl.style.color = isErr ? '#b45309' : '#4b5563';
+    }
+
+    function agentHeaders() {
+      const t = agentBearerEl.value.trim();
+      if (!t) throw new Error('Paste bearer token (use Exchange code or POST /auth)');
+      return { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' };
+    }
+
+    async function agentFetch(path, opts = {}) {
+      const h = { ...agentHeaders(), ...(opts.headers || {}) };
+      const r = await fetch(path, { ...opts, headers: h });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const d = data.detail;
+        const msg = typeof d === 'string' ? d : Array.isArray(d) ? d.map((x) => x.msg).join('; ') : JSON.stringify(data);
+        throw new Error(msg || r.statusText);
+      }
+      return data;
+    }
+
+    function renderAgentNewsBar(snap) {
+      if (!snap || !snap.articles) {
+        agentNewsBarEl.textContent = snap?.error || 'No articles.';
+        return;
+      }
+      const lines = (snap.articles || []).slice(0, 8).map((a) => {
+        const t = a.title || '';
+        const src = a.source ? ` (${a.source})` : '';
+        return '• ' + t + src;
+      });
+      agentNewsBarEl.textContent = lines.join('\n') || 'Empty list.';
+    }
+
+    document.getElementById('agentExchangeBtn').addEventListener('click', async () => {
+      try {
+        const code = document.getElementById('agentCivicCode').value.trim();
+        const redirect_uri = document.getElementById('agentRedirectUri').value.trim() || undefined;
+        const r = await fetch('/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, redirect_uri }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const d = data.detail;
+          throw new Error(typeof d === 'string' ? d : JSON.stringify(data));
+        }
+        agentBearerEl.value = data.access_token;
+        try {
+          localStorage.setItem(AGENT_TOKEN_KEY, data.access_token);
+        } catch (_) {}
+        agentSetMsg('Token saved to localStorage.', false);
+      } catch (e) {
+        agentSetMsg(e.message || String(e), true);
+      }
+    });
+
+    document.getElementById('agentStartBtn').addEventListener('click', async () => {
+      try {
+        const d = await agentFetch('/start', { method: 'POST', body: JSON.stringify({ reset_paper: false }) });
+        agentOutEl.textContent = JSON.stringify(d, null, 2);
+        agentSetMsg('Started (Vigil automation + autonomous flag).', false);
+      } catch (e) {
+        agentSetMsg(e.message || String(e), true);
+      }
+    });
+
+    document.getElementById('agentStopBtn').addEventListener('click', async () => {
+      try {
+        const d = await agentFetch('/stop', { method: 'POST', body: '{}' });
+        agentOutEl.textContent = JSON.stringify(d, null, 2);
+        agentSetMsg('Kill switch ON; Vigil automation stopped.', false);
+      } catch (e) {
+        agentSetMsg(e.message || String(e), true);
+      }
+    });
+
+    document.getElementById('agentUnlockBtn').addEventListener('click', async () => {
+      try {
+        const d = await agentFetch('/unlock', { method: 'POST', body: '{}' });
+        agentOutEl.textContent = JSON.stringify(d, null, 2);
+        agentSetMsg('Kill switch cleared — manual paper trades allowed.', false);
+      } catch (e) {
+        agentSetMsg(e.message || String(e), true);
+      }
+    });
+
+    document.getElementById('agentStatusBtn').addEventListener('click', async () => {
+      try {
+        const d = await agentFetch('/status');
+        agentOutEl.textContent = JSON.stringify(d, null, 2);
+        agentSetMsg('Status OK.', false);
+      } catch (e) {
+        agentSetMsg(e.message || String(e), true);
+      }
+    });
+
+    document.getElementById('agentReportBtn').addEventListener('click', async () => {
+      try {
+        const d = await agentFetch('/report');
+        agentOutEl.textContent = JSON.stringify(d, null, 2);
+        agentSetMsg('Report loaded (includes LLM when autonomous off + profile set).', false);
+      } catch (e) {
+        agentSetMsg(e.message || String(e), true);
+      }
+    });
+
+    document.getElementById('agentNewsBtn').addEventListener('click', async () => {
+      try {
+        const d = await agentFetch('/news');
+        renderAgentNewsBar(d);
+        agentSetMsg('News loaded.', false);
+      } catch (e) {
+        agentSetMsg(e.message || String(e), true);
+      }
+    });
+
+    document.getElementById('agentNewsRefreshBtn').addEventListener('click', async () => {
+      try {
+        const d = await agentFetch('/news?refresh=true');
+        renderAgentNewsBar(d);
+        agentSetMsg('News refreshed from NewsAPI.', false);
+      } catch (e) {
+        agentSetMsg(e.message || String(e), true);
+      }
+    });
+
+    document.getElementById('agentWsBtn').addEventListener('click', () => {
+      try {
+        const t = agentBearerEl.value.trim();
+        if (!t) throw new Error('Need bearer token for ?token=');
+        if (agentWs) {
+          agentWs.close();
+          agentWs = null;
+          agentSetMsg('WebSocket closed.', false);
+          return;
+        }
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        agentWs = new WebSocket(`${proto}://${location.host}/ws/feed?token=${encodeURIComponent(t)}`);
+        agentWs.onmessage = (ev) => {
+          try {
+            const j = JSON.parse(ev.data);
+            const line = `[${j.event}] ${JSON.stringify(j.data).slice(0, 200)}`;
+            agentOutEl.textContent = line + '\n' + agentOutEl.textContent.slice(0, 4000);
+          } catch (_) {}
+        };
+        agentWs.onerror = () => agentSetMsg('WebSocket error', true);
+        agentSetMsg('WebSocket connecting…', false);
+      } catch (e) {
+        agentSetMsg(e.message || String(e), true);
+      }
+    });
+
+    (async () => {
+      try {
+        await paperApLoad();
+        const r = await fetch('/api/paper/status');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.started) {
+          renderPaperFromJson(d);
+          startPaperPoll();
+          paperSetMsg('Restored paper session (server memory).');
+        }
+      } catch (_) {}
+    })();
+  </script>
+</body>
+</html>
