@@ -1,0 +1,25 @@
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  NEON UNDERTOW · Vigil demo strategy                                     ║
+// ║  Dip-longs: RSI bounces up from below rsi_lower; trend context = close   ║
+// ║  not far under EMA(ema_len) (Python demo uses a 0.76×EMA floor).         ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+//
+//     ~~~~~~~^~~~~~~~~^~~~~~~~~~   waveform aesthetic   ~~~~~~~~~^~~~~~~~~^~~~~~~~
+//              \  mean-reversion + trend guard  /
+//
+// @vigil:template RSICrossTrendFilter
+
+// Tighter grids = slower runs but flashier optimization sweeps
+// @vigil:range rsi_len 7 21 1
+// @vigil:range rsi_lower 18 38 1
+// @vigil:range rsi_upper 62 82 1
+// @vigil:range ema_len 34 89 1
+
+rsi_len   = input.int(11, "Undertow · RSI period")
+rsi_lower = input.int(28, "Undertow · RSI floor (buy zone)")
+rsi_upper = input.int(72, "Undertow · RSI ceiling (take heat off)")
+ema_len   = input.int(55, "Undertow · EMA tide length")
+
+// --- Pine body is yours on TradingView; Vigil only tunes the four inputs above. ---
+// Concept sketch: bounce from oversold + EMA context; exit when RSI punches rsi_upper.
+// (Long-only in this demo; tune your real Pine to match how you trade.)

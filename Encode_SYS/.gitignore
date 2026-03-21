@@ -1,0 +1,21 @@
+# Repo root is often Encode_SYS-main; rules also live in ../../.gitignore.
+# These paths apply if this folder is used as a git root.
+
+.logs/
+backend/.env
+.env
+.env.local
+.env.*.local
+*.pem
+
+frontend/node_modules/
+frontend/dist/
+**/__pycache__/
+**/*.py[cod]
+backend/.venv/
+backend/venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.DS_Store

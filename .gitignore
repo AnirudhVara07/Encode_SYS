@@ -1,0 +1,38 @@
+# --- Secrets & local env (never commit real keys) ---
+.env
+.env.local
+.env.*.local
+Encode_SYS/backend/.env
+Encode_SYS/.env
+*.pem
+
+# --- Node ---
+Encode_SYS/frontend/node_modules/
+
+# --- Python ---
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+**/*.egg-info/
+.eggs/
+*.egg
+Encode_SYS/backend/.venv/
+Encode_SYS/backend/venv/
+.venv/
+
+# --- Logs ---
+Encode_SYS/.logs/
+
+# --- Cursor (keep rules if desired; omit local debug dumps) ---
+.cursor/debug*.log
+
+# --- OS / editor ---
+.DS_Store
+*.swp
+*~
+
+# --- Frontend build scratch (Vite outDir is ../backend/app/static; ignore stray dist/) ---
+Encode_SYS/frontend/dist/

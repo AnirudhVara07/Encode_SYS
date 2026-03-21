@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Vigil: ensure backend",
+      "type": "shell",
+      "command": "bash",
+      "args": ["${workspaceFolder}/Encode_SYS/scripts/ensure-backend.sh"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "runOptions": { "instanceLimit": 1 }
+    },
+    {
+      "label": "Vigil: backend (foreground)",
+      "type": "shell",
+      "command": "uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload",
+      "options": { "cwd": "${workspaceFolder}/Encode_SYS/backend" },
+      "problemMatcher": [],
+      "isBackground": true
+    }
+  ]
+}

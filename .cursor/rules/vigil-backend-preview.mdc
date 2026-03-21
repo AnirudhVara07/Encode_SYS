@@ -1,0 +1,21 @@
+---
+description: Auto-start Vigil FastAPI before opening localhost preview (port 8000)
+alwaysApply: true
+---
+
+# Vigil backend before preview
+
+When the user asks to **open**, **preview**, **run**, or **show** the Vigil app, or before using the **browser MCP** to visit:
+
+- `http://127.0.0.1:8000` or `localhost:8000` (any path, including `/`, `/demo`, `/dashboard`, `/legacy-demo`, `/docs`)
+
+**Do this first (do not only instruct the user):**
+
+1. Run the idempotent script from the workspace root: `bash Encode_SYS/scripts/ensure-backend.sh`  
+   It starts the backend if port 8000 is down, and **restarts** a stale uvicorn when `GET /` succeeds but `GET /api/marketaux-news` returns **404** (common after `git pull` without restart).
+2. If the script is not an option: if `curl -sf --connect-timeout 1 -o /dev/null http://127.0.0.1:8000/` fails, start `uvicorn app.main:app --host 127.0.0.1 --port 8000` from `Encode_SYS/backend` in the **background** (`block_until_ms: 0` / `nohup`).
+3. Re-check with `curl` until `http://127.0.0.1:8000/` returns HTTP 200; then open the URL or navigate via MCP.
+
+Logs for script-started servers: `Encode_SYS/.logs/uvicorn.log`.
+
+This rule applies to **agent-driven** previews. Humans can run the same script or the VS Code task **Vigil: ensure backend**.

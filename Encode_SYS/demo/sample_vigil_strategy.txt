@@ -1,0 +1,17 @@
+// Vigil demo sample — upload this file in the web UI (.txt is accepted).
+// Template: RSI mean-reversion (long-only logic is mirrored in the Python backtest).
+
+// @vigil:template RSIThresholdReversion
+
+// Optional: optimizer grid (param min max step). Omit to use built-in demo ranges.
+// @vigil:range rsi_len 5 30 1
+// @vigil:range rsi_lower 20 45 1
+// @vigil:range rsi_upper 55 80 1
+
+rsi_len   = input.int(14, "RSI Length")
+rsi_lower = input.int(30, "RSI Lower")
+rsi_upper = input.int(70, "RSI Upper")
+
+// --- The rest is illustrative Pine-style notes only; the demo does not execute this on TradingView. ---
+// Long when RSI crosses above rsi_lower from below; exit when RSI crosses below rsi_upper from above.
+// Your real strategy body would go here using these inputs.

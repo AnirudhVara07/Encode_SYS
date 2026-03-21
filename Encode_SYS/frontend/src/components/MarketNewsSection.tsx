@@ -1,0 +1,344 @@
+import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { useScrollReveal } from "./useScrollReveal";
+
+type MarketArticle = {
+  title: string;
+  description: string;
+  url: string;
+  image_url: string;
+  published_at: string;
+  source: string;
+  entities: string[];
+};
+
+type StrategyInsights = {
+  summary: string;
+  considerations: string[];
+  macro_todos?: string[];
+  asset_todos?: string[];
+  error: string | null;
+};
+
+type MarketNewsResponse = {
+  articles: MarketArticle[];
+  meta: Record<string, unknown> | null;
+  error: string | null;
+  strategy_insights?: StrategyInsights;
+  /** FastAPI HTTPException body */
+  detail?: string | string[];
+};
+
+function formatWhen(iso: string) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+type MarketNewsSectionProps = {
+  /** e.g. tighter top when placed directly under live prices */
+  className?: string;
+};
+
+const MarketNewsSection = ({ className }: MarketNewsSectionProps) => {
+  const { ref, isVisible } = useScrollReveal();
+  const [articles, setArticles] = useState<MarketArticle[]>([]);
+  const [insights, setInsights] = useState<StrategyInsights | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryFetchError, setSummaryFetchError] = useState<string | null>(null);
+
+  const fetchSummary = useCallback(async () => {
+    setSummaryLoading(true);
+    setSummaryFetchError(null);
+    try {
+      const res = await fetch("/api/marketaux-news?limit=12&insights=1");
+      const data = (await res.json()) as MarketNewsResponse;
+      // #region agent log
+      {
+        const si = data.strategy_insights;
+        fetch("http://127.0.0.1:7525/ingest/58246f49-c20a-4cf3-8c2c-5b5ed0515952", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "16c4fd" },
+          body: JSON.stringify({
+            sessionId: "16c4fd",
+            runId: "pre",
+            hypothesisId: "H2",
+            location: "MarketNewsSection.tsx:afterSummaryFetch",
+            message: "marketing summary fetch parsed",
+            data: {
+              ok: res.ok,
+              topError: typeof data.error === "string" ? data.error.length : -1,
+              articleCount: Array.isArray(data.articles) ? data.articles.length : -1,
+              hasSiKey: Object.prototype.hasOwnProperty.call(data, "strategy_insights"),
+              siType: si === undefined ? "undefined" : si === null ? "null" : typeof si,
+              siSummaryLen:
+                si && typeof si === "object" && "summary" in si && typeof (si as StrategyInsights).summary === "string"
+                  ? (si as StrategyInsights).summary.length
+                  : -1,
+              siErrorLen:
+                si && typeof si === "object" && typeof (si as StrategyInsights).error === "string"
+                  ? ((si as StrategyInsights).error as string).length
+                  : 0,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+      }
+      // #endregion
+      if (!res.ok) {
+        const raw = data as MarketNewsResponse;
+        let msg: string | undefined =
+          typeof raw.error === "string" && raw.error.trim() ? raw.error.trim() : undefined;
+        if (!msg && res.status === 404) {
+          msg =
+            "The news API was not found (HTTP 404). Restart the Vigil backend (uvicorn on port 8000) from the current project, or open the site from http://127.0.0.1:8000/.";
+        }
+        if (!msg && typeof raw.detail === "string" && raw.detail === "Not found") {
+          msg =
+            "The news API was not found. Restart the Vigil backend from the current codebase so GET /api/marketaux-news is registered.";
+        }
+        if (!msg && typeof raw.detail === "string") {
+          msg = raw.detail;
+        }
+        setSummaryFetchError(msg || "Could not load AI summary.");
+        return;
+      }
+      if (data.error) {
+        setSummaryFetchError(data.error);
+        return;
+      }
+      const si = data.strategy_insights;
+      if (si && typeof si === "object") {
+        setInsights({
+          summary: typeof si.summary === "string" ? si.summary : "",
+          considerations: Array.isArray(si.considerations)
+            ? si.considerations.filter((x): x is string => typeof x === "string")
+            : [],
+          macro_todos: Array.isArray(si.macro_todos)
+            ? si.macro_todos.filter((x): x is string => typeof x === "string")
+            : undefined,
+          asset_todos: Array.isArray(si.asset_todos)
+            ? si.asset_todos.filter((x): x is string => typeof x === "string")
+            : undefined,
+          error: typeof si.error === "string" ? si.error : null,
+        });
+      } else {
+        setInsights(null);
+      }
+    } catch {
+      setSummaryFetchError("Could not load AI summary.");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/marketaux-news?limit=12");
+        const data = (await res.json()) as MarketNewsResponse;
+        if (cancelled) return;
+        if (!res.ok) {
+          setArticles([]);
+          setInsights(null);
+          const raw = data as MarketNewsResponse;
+          let msg: string | undefined =
+            typeof raw.error === "string" && raw.error.trim() ? raw.error.trim() : undefined;
+          if (!msg && res.status === 404) {
+            msg =
+              "The news API was not found (HTTP 404). Restart the Vigil backend (uvicorn on port 8000) from the current project, or open the site from http://127.0.0.1:8000/.";
+          }
+          if (!msg && typeof raw.detail === "string" && raw.detail === "Not found") {
+            msg =
+              "The news API was not found. Restart the Vigil backend from the current codebase so GET /api/marketaux-news is registered.";
+          }
+          if (!msg && typeof raw.detail === "string") {
+            msg = raw.detail;
+          }
+          setError(msg || "Could not load news.");
+          return;
+        }
+        if (data.error) {
+          setArticles([]);
+          setInsights(null);
+          setError(data.error);
+          return;
+        }
+        setArticles(Array.isArray(data.articles) ? data.articles : []);
+      } catch {
+        if (!cancelled) {
+          setArticles([]);
+          setInsights(null);
+          setError("Could not load news.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section
+      id="market-news"
+      className={cn("relative py-32 px-6 scroll-mt-24", className)}
+      ref={ref}
+    >
+      <div className="container mx-auto max-w-5xl">
+        <div
+          className={`text-center mb-12 transition-all duration-700 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"}`}
+        >
+          <span className="font-mono text-xs tracking-[0.3em] uppercase text-primary">Markets</span>
+          <h2 className="mt-4 text-4xl sm:text-5xl font-bold tracking-tight">Current headlines</h2>
+          <p className="mt-3 text-sm text-muted-foreground max-w-xl mx-auto">
+            Market and macro-leaning headlines: stories tagged with equities, indices, ETFs, funds, FX, or crypto
+            (MarketAux), refreshed when you load the page.
+          </p>
+        </div>
+
+        {loading ? (
+          <div className="rounded-2xl border border-border bg-vigil-surface/60 p-10 text-center text-sm text-muted-foreground animate-pulse">
+            Loading news…
+          </div>
+        ) : error ? (
+          <div className="rounded-2xl border border-border bg-vigil-surface/60 p-8 text-center">
+            <p className="text-sm text-muted-foreground">{error}</p>
+            {/MARKETAUX_API_TOKEN|MARKETAUX.*not configured|invalid_api_token/i.test(error) ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Set <code className="font-mono text-[11px]">MARKETAUX_API_TOKEN</code> in{" "}
+                <code className="font-mono text-[11px]">backend/.env</code> and restart the server.
+              </p>
+            ) : null}
+            {/stale or mismatched|Restart uvicorn|not available on the running server|HTTP 404/i.test(error) ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                If you use Vite on port 8080, keep the API running on 8000. After <code className="font-mono text-[11px]">git pull</code>, always restart uvicorn so new routes load.
+              </p>
+            ) : null}
+          </div>
+        ) : articles.length === 0 ? (
+          <div className="rounded-2xl border border-border bg-vigil-surface/60 p-8 text-center text-sm text-muted-foreground">
+            No articles returned.
+          </div>
+        ) : (
+          <>
+            <div className="mb-8 rounded-2xl border border-primary/25 bg-vigil-surface/80 p-6 sm:p-8">
+              <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-primary">AI lens</p>
+              <h3 className="mt-2 text-lg font-semibold tracking-tight">AI summary</h3>
+              {insights === null && !summaryLoading ? (
+                <Button type="button" className="mt-4 w-fit" onClick={() => void fetchSummary()}>
+                  Get summary
+                </Button>
+              ) : null}
+              {summaryLoading ? (
+                <p className="mt-4 text-sm text-muted-foreground animate-pulse">Generating summary…</p>
+              ) : null}
+              {summaryFetchError ? <p className="mt-3 text-sm text-destructive/90">{summaryFetchError}</p> : null}
+              {insights ? (
+                <>
+                  {insights.error ? (
+                    <p className="mt-3 text-sm text-muted-foreground">{insights.error}</p>
+                  ) : null}
+                  {insights.summary ? (
+                    <p className="mt-4 text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{insights.summary}</p>
+                  ) : null}
+                  {insights.considerations.length > 0 ? (
+                    <ul className="mt-4 space-y-2 text-sm text-muted-foreground list-disc pl-5">
+                      {insights.considerations.map((c, idx) => (
+                        <li key={idx} className="leading-relaxed">
+                          {c}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {!summaryLoading ? (
+                    <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => void fetchSummary()}>
+                      Refresh summary
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+            {articles.map((a, i) => (
+              <article
+                key={`${a.url}-${i}`}
+                className={`group rounded-2xl border border-border bg-vigil-surface/60 overflow-hidden flex flex-col transition-all duration-700 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"}`}
+                style={{ transitionDelay: `${Math.min(i, 5) * 80}ms` }}
+              >
+                {a.image_url ? (
+                  <a
+                    href={a.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block aspect-[2/1] overflow-hidden bg-muted"
+                  >
+                    <img
+                      src={a.image_url}
+                      alt=""
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                      loading="lazy"
+                    />
+                  </a>
+                ) : null}
+                <div className="p-5 flex flex-col flex-1 min-h-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground font-mono uppercase tracking-wide">
+                    {a.source ? <span>{a.source}</span> : null}
+                    {a.source && a.published_at ? <span aria-hidden>·</span> : null}
+                    {a.published_at ? <time dateTime={a.published_at}>{formatWhen(a.published_at)}</time> : null}
+                  </div>
+                  <h3 className="mt-2 text-base font-semibold leading-snug">
+                    <a
+                      href={a.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-primary transition-colors"
+                    >
+                      {a.title || "Untitled"}
+                    </a>
+                  </h3>
+                  {a.description ? (
+                    <p className="mt-2 text-sm text-muted-foreground leading-relaxed line-clamp-3">{a.description}</p>
+                  ) : null}
+                  {a.entities.length > 0 ? (
+                    <p className="mt-3 text-[11px] text-muted-foreground font-mono truncate" title={a.entities.join(", ")}>
+                      {a.entities.join(" · ")}
+                    </p>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+            </div>
+          </>
+        )}
+
+        <p className="mt-8 text-center text-[11px] text-muted-foreground font-mono">
+          News data from{" "}
+          <a
+            href="https://www.marketaux.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            MarketAux
+          </a>
+        </p>
+      </div>
+    </section>
+  );
+};
+
+export default MarketNewsSection;
