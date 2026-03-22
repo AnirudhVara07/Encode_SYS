@@ -312,9 +312,30 @@ def paper_autopilot_put_config(body: AutopilotConfigBody):
 @router.post("/autopilot/start")
 def paper_autopilot_start():
     try:
-        return paper_autopilot.start()
+        result = paper_autopilot.start()
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=redact_secrets_for_client(str(e))) from e
+    commitments: List[Dict[str, Any]] = []
+    try:
+        from ..coinbase_live.event_attestation import try_attest_strategy_commitment
+        import time as _t
+
+        ts = _t.time()
+        for s in (result.get("strategies") or []):
+            if not s.get("enabled"):
+                continue
+            att = try_attest_strategy_commitment(
+                strategy_id=str(s.get("id") or ""),
+                params=s.get("params") or {},
+                ts=ts,
+            )
+            if att:
+                commitments.append(att)
+    except Exception:
+        pass
+    if commitments:
+        result["chain_commitments"] = commitments
+    return result
 
 
 @router.post("/autopilot/stop")
@@ -437,14 +458,26 @@ def paper_halt():
     paper_autopilot.stop()
     st = paper_autopilot.status()
     publish_paper_event("trading_halt", {"kill_switch": True, "autopilot_running": st.get("running")})
-    return {"ok": True, "kill_switch": True, "autopilot": st}
+    chain_audit = None
+    try:
+        from ..coinbase_live.event_attestation import try_attest_kill_switch
+        chain_audit = try_attest_kill_switch(on=True)
+    except Exception:
+        pass
+    return {"ok": True, "kill_switch": True, "autopilot": st, "chain_audit": chain_audit}
 
 
 @router.post("/resume")
 def paper_resume():
     agent_state.set_kill_switch(False)
     publish_paper_event("trading_resume", {"kill_switch": False})
-    return {"ok": True, "kill_switch": False}
+    chain_audit = None
+    try:
+        from ..coinbase_live.event_attestation import try_attest_kill_switch
+        chain_audit = try_attest_kill_switch(on=False)
+    except Exception:
+        pass
+    return {"ok": True, "kill_switch": False, "chain_audit": chain_audit}
 
 
 @router.get("/performance-summary")

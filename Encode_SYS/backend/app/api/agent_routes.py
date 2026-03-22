@@ -235,6 +235,11 @@ def post_unlock(session: Dict[str, Any] = Depends(get_current_session)):
     """Clear kill switch only (does not start Vigil). Use after POST /stop to allow manual paper trades again."""
     agent_state.set_kill_switch(False)
     try:
+        from ..coinbase_live.event_attestation import try_attest_kill_switch
+        try_attest_kill_switch(on=False)
+    except Exception:
+        pass
+    try:
         ws_bus.broadcast({"event": "status", "data": {"kill_switch": False, "message": "unlock"}})
     except Exception:
         pass
@@ -247,6 +252,11 @@ def post_stop(session: Dict[str, Any] = Depends(get_current_session)):
     agent_state.set_autonomous(False)
     agent_state.set_autopilot_owner_session_id(None)
     paper_autopilot.stop()
+    try:
+        from ..coinbase_live.event_attestation import try_attest_kill_switch
+        try_attest_kill_switch(on=True)
+    except Exception:
+        pass
     try:
         ws_bus.broadcast(
             {

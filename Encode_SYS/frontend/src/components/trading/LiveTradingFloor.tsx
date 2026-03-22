@@ -51,12 +51,32 @@ const fmtNum = (n: unknown) => {
   return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
 };
 
+type RollupEntry = {
+  merkle_root?: string;
+  leaf_count?: number;
+  leaf_hashes?: string[];
+  ts?: number;
+  attestation?: {
+    ok?: boolean;
+    explorer_url?: string;
+    error?: string;
+    tx_hash?: string;
+  };
+};
+
+type RollupState = {
+  rollups: RollupEntry[];
+  pending: { pending_count: number; batch_size: number; leaf_hashes: string[] };
+};
+
 export function LiveTradingFloor({ bearer, running, fills, onRefresh, onStop }: Props) {
   const [feedLines, setFeedLines] = useState<string[]>([]);
   const [lastTick, setLastTick] = useState<VigilTickPayload | null>(null);
   const [killSwitch, setKillSwitch] = useState(false);
   const [clearingKillSwitch, setClearingKillSwitch] = useState(false);
   const [guardrailsNonce, setGuardrailsNonce] = useState(0);
+  const [rollupState, setRollupState] = useState<RollupState | null>(null);
+  const [flushingRollup, setFlushingRollup] = useState(false);
 
   const { ticks } = useCoinbaseTicker(["BTC-GBP"] as const);
   const spot = ticks["BTC-GBP"];
@@ -79,6 +99,34 @@ export function LiveTradingFloor({ bearer, running, fills, onRefresh, onStop }: 
       /* ignore */
     }
   }, [bearer]);
+
+  const fetchRollups = useCallback(async () => {
+    try {
+      const r = await fetch("/api/coinbase-live/rollups", { headers: { Authorization: `Bearer ${bearer}` } });
+      if (!r.ok) return;
+      setRollupState(await r.json());
+    } catch {
+      /* ignore */
+    }
+  }, [bearer]);
+
+  const flushRollup = async () => {
+    setFlushingRollup(true);
+    try {
+      const r = await fetch("/api/coinbase-live/rollup/flush", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" },
+      });
+      if (r.ok) {
+        await fetchRollups();
+        await onRefresh();
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setFlushingRollup(false);
+    }
+  };
 
   const clearKillSwitch = async () => {
     setClearingKillSwitch(true);
@@ -124,6 +172,7 @@ export function LiveTradingFloor({ bearer, running, fills, onRefresh, onStop }: 
             setFeedLines((prev) => [line, ...prev].slice(0, 50));
             setGuardrailsNonce((n) => n + 1);
             void onRefresh();
+            void fetchRollups();
           }
 
           if (evName === "kill_switch_cleared") {
@@ -138,11 +187,12 @@ export function LiveTradingFloor({ bearer, running, fills, onRefresh, onStop }: 
 
     connect();
     void fetchKillSwitch();
+    void fetchRollups();
 
     return () => {
       es?.close();
     };
-  }, [bearer, fetchKillSwitch, onRefresh]);
+  }, [bearer, fetchKillSwitch, fetchRollups, onRefresh]);
 
   const fNum = (f: Record<string, unknown>, key: string) => {
     const v = f[key];
@@ -437,6 +487,30 @@ export function LiveTradingFloor({ bearer, running, fills, onRefresh, onStop }: 
                         On-chain attestation failed: {attErr}
                       </p>
                     ) : null}
+                    {(() => {
+                      const rawRollup = f.rollup;
+                      const rollup =
+                        rawRollup && typeof rawRollup === "object" && !Array.isArray(rawRollup)
+                          ? (rawRollup as Record<string, unknown>)
+                          : null;
+                      if (!rollup) return null;
+                      const rAtt =
+                        rollup.attestation && typeof rollup.attestation === "object"
+                          ? (rollup.attestation as Record<string, unknown>)
+                          : null;
+                      const rUrl = rAtt && typeof rAtt.explorer_url === "string" ? rAtt.explorer_url : null;
+                      const rOk = rAtt?.ok === true;
+                      return rOk && rUrl ? (
+                        <a
+                          href={rUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-block text-[10px] text-primary/80 underline underline-offset-2"
+                        >
+                          Merkle rollup ({String(rollup.leaf_count ?? "?")} fills)
+                        </a>
+                      ) : null;
+                    })()}
                   </div>
                 );
               })}
@@ -478,6 +552,60 @@ export function LiveTradingFloor({ bearer, running, fills, onRefresh, onStop }: 
                 </div>
               </div>
             ) : null}
+          </div>
+        ) : null}
+
+        {/* Merkle rollups */}
+        {rollupState && (rollupState.rollups.length > 0 || rollupState.pending.pending_count > 0) ? (
+          <div className="space-y-2">
+            <Separator />
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold font-mono uppercase tracking-widest text-muted-foreground">
+                Merkle rollups
+              </h3>
+              {rollupState.pending.pending_count > 0 ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    {rollupState.pending.pending_count}/{rollupState.pending.batch_size} pending
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[10px] px-2"
+                    disabled={flushingRollup}
+                    onClick={() => void flushRollup()}
+                  >
+                    Flush now
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+            <div className="text-xs font-mono space-y-1.5 max-h-40 overflow-auto rounded-md border border-border p-2 bg-background/40">
+              {rollupState.rollups.map((r, i) => {
+                const rAtt = r.attestation;
+                const rUrl = rAtt?.ok && typeof rAtt.explorer_url === "string" ? rAtt.explorer_url : null;
+                return (
+                  <div key={r.merkle_root ?? i} className="border-b border-border/40 pb-1 last:border-b-0 last:pb-0">
+                    <div className="text-muted-foreground">
+                      {r.leaf_count ?? "?"} fills · root{" "}
+                      <span className="text-[10px] break-all">{r.merkle_root ? `${r.merkle_root.slice(0, 10)}…${r.merkle_root.slice(-6)}` : "—"}</span>
+                      {r.ts ? <span className="text-muted-foreground/70"> · {formatDateTimeGb(r.ts * 1000)}</span> : null}
+                    </div>
+                    {rUrl ? (
+                      <a
+                        href={rUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-0.5 inline-block text-[10px] text-primary underline underline-offset-2"
+                      >
+                        On-chain rollup receipt
+                      </a>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ) : null}
       </CardContent>

@@ -78,6 +78,14 @@ def gate_or_block(
         reasons=reasons,
     )
     try:
+        from ..coinbase_live.event_attestation import try_attest_block
+
+        att = try_attest_block(entry)
+        if att is not None:
+            entry["chain_audit"] = att
+    except Exception:
+        pass
+    try:
         from . import ws_bus
 
         ws_bus.broadcast({"event": "blocked", "data": entry})

@@ -813,7 +813,28 @@ def coinbase_autopilot_start(
             )
     store.set_autopilot_running(civic_sub, True)
     ensure_scheduler_started()
-    return {**store.get_autopilot_row(civic_sub), "message": "Live Vigil started"}
+    row = store.get_autopilot_row(civic_sub)
+    commitments: List[Dict[str, Any]] = []
+    try:
+        from ..coinbase_live.event_attestation import try_attest_strategy_commitment
+
+        ts_now = time.time()
+        for s in (row.get("strategies") or []):
+            if not (s.get("enabled") if isinstance(s, dict) else True):
+                continue
+            att = try_attest_strategy_commitment(
+                strategy_id=str(s.get("id") or "") if isinstance(s, dict) else str(s),
+                params=(s.get("params") or {}) if isinstance(s, dict) else {},
+                ts=ts_now,
+            )
+            if att:
+                commitments.append(att)
+    except Exception:
+        pass
+    out: Dict[str, Any] = {**row, "message": "Live Vigil started"}
+    if commitments:
+        out["chain_commitments"] = commitments
+    return out
 
 
 @router.post("/autopilot/stop")
@@ -917,6 +938,28 @@ async def coinbase_live_events_sse(
     )
 
 
+@router.get("/rollups")
+def coinbase_rollups(limit: int = 20, session: Dict[str, Any] = Depends(get_current_session)):
+    """List recent Merkle rollup attestations for this user's fills."""
+    civic_sub = session["sub"]
+    from ..coinbase_live.rollup_attestation import list_rollups, pending_info
+    return {
+        "rollups": list_rollups(civic_sub, limit=min(limit, 50)),
+        "pending": pending_info(civic_sub),
+    }
+
+
+@router.post("/rollup/flush")
+def coinbase_rollup_flush(session: Dict[str, Any] = Depends(get_current_session)):
+    """Force-flush any pending fill hashes into a Merkle rollup now."""
+    civic_sub = session["sub"]
+    from ..coinbase_live.rollup_attestation import force_flush, pending_info
+    rollup = force_flush(civic_sub)
+    if rollup is None:
+        return {"ok": True, "message": "No pending fills to roll up", "rollup": None}
+    return {"ok": True, "rollup": rollup, "pending": pending_info(civic_sub)}
+
+
 @router.get("/kill-switch")
 def coinbase_kill_switch_get(session: Dict[str, Any] = Depends(get_current_session)):
     return {"kill_switch": agent_state.get_kill_switch()}
@@ -926,4 +969,10 @@ def coinbase_kill_switch_get(session: Dict[str, Any] = Depends(get_current_sessi
 def coinbase_kill_switch_clear(session: Dict[str, Any] = Depends(get_current_session)):
     agent_state.set_kill_switch(False)
     publish_live_event("kill_switch_cleared", {"kill_switch": False})
-    return {"ok": True, "kill_switch": False, "message": "Kill switch cleared"}
+    chain_audit = None
+    try:
+        from ..coinbase_live.event_attestation import try_attest_kill_switch
+        chain_audit = try_attest_kill_switch(on=False)
+    except Exception:
+        pass
+    return {"ok": True, "kill_switch": False, "message": "Kill switch cleared", "chain_audit": chain_audit}

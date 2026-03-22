@@ -631,7 +631,11 @@ export default function RealTradingPage() {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(apiErrorDetail(d) || "Start failed");
-      setBanner(d.message || "Live Vigil started.");
+      const commitments = Array.isArray(d.chain_commitments) ? d.chain_commitments : [];
+      const commitMsg = commitments.length > 0
+        ? ` · ${commitments.length} strategy commitment${commitments.length > 1 ? "s" : ""} attested on-chain`
+        : "";
+      setBanner((d.message || "Live Vigil started.") + commitMsg);
       await loadStatus();
       return true;
     } catch (e) {

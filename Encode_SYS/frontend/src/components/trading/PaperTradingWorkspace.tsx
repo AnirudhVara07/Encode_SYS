@@ -313,7 +313,11 @@ export function PaperTradingWorkspace({
       const snap = d as AutopilotSnapshot;
       setAp(snap);
       onPaperVigilRunningChange?.(Boolean(snap.running));
-      setBanner("Paper Vigil is running, rule-based trades on your simulated portfolio (no bearer token).");
+      const commitments = Array.isArray(d.chain_commitments) ? d.chain_commitments : [];
+      const commitMsg = commitments.length > 0
+        ? ` · ${commitments.length} strategy commitment${commitments.length > 1 ? "s" : ""} attested on-chain`
+        : "";
+      setBanner("Paper Vigil is running, rule-based trades on your simulated portfolio (no bearer token)." + commitMsg);
     } catch (e) {
       setBanner(e instanceof Error ? e.message : "Start failed");
     } finally {

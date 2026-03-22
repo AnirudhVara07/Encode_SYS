@@ -22,6 +22,11 @@ export type GuardrailsApiPayload = {
     message?: unknown;
     reasons?: unknown;
     source?: unknown;
+    chain_audit?: {
+      ok?: boolean;
+      explorer_url?: string;
+      error?: string;
+    };
   }>;
   kill_switch?: boolean;
 };
@@ -269,6 +274,10 @@ export function GuardrailsPanel({
                 reasonRows.push({ code: rc, text: msg });
               }
               const src = b.source != null ? String(b.source) : "";
+              const ca = b.chain_audit;
+              const caOk = ca?.ok === true;
+              const caUrl = typeof ca?.explorer_url === "string" ? ca.explorer_url : null;
+              const caErr = ca?.ok === false && typeof ca?.error === "string" ? ca.error : null;
               return (
                 <li
                   key={String(b.id ?? `${ts}-${rc}-${reasonRows.map((r) => r.code).join(",")}`)}
@@ -292,6 +301,21 @@ export function GuardrailsPanel({
                       </li>
                     ))}
                   </ul>
+                  {caOk && caUrl ? (
+                    <a
+                      href={caUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-block text-[10px] text-primary underline underline-offset-2"
+                    >
+                      On-chain audit
+                    </a>
+                  ) : null}
+                  {caErr ? (
+                    <p className="mt-1 text-[10px] text-destructive/80 leading-snug">
+                      Chain audit failed: {caErr}
+                    </p>
+                  ) : null}
                 </li>
               );
             })
