@@ -32,7 +32,7 @@ function parseTickerMessage(raw: unknown): CoinbaseTick | null {
 
 /**
  * Subscribes to Coinbase Exchange public ticker channel (no API key).
- * Note: Coinbase lists crypto spot pairs (e.g. BTC-USD), not traditional equities.
+ * Note: Coinbase lists crypto spot pairs (e.g. BTC-GBP), not traditional equities.
  */
 export function useCoinbaseTicker(productIds: readonly string[]) {
   const [ticks, setTicks] = useState<Record<string, CoinbaseTick>>({});

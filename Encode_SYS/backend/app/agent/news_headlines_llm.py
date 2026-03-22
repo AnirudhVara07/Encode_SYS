@@ -4,7 +4,8 @@ import json
 import re
 from typing import Any, Dict, List
 
-from .llm_http import _agent_debug_log, llm_chat_completion, llm_key_error_message, require_llm_config
+from .llm_http import _agent_debug_log, guarded_llm_chat_completion, llm_key_error_message, require_llm_config
+from .llm_safety import SafetyProfile
 from .secrets_redact import redact_secrets_for_client
 
 
@@ -13,6 +14,7 @@ def strategy_insights_from_headlines(*, articles: List[Dict[str, Any]]) -> Dict[
     Turn normalized MarketAux articles (title, description, entities) into short
     strategy considerations for the Vigil paper / Pine demo — not investment advice.
     """
+    none_safety = {"level": "ok", "source": "none"}
     cfg = require_llm_config()
     if not cfg:
         return {
@@ -21,6 +23,7 @@ def strategy_insights_from_headlines(*, articles: List[Dict[str, Any]]) -> Dict[
             "macro_todos": [],
             "asset_todos": [],
             "error": llm_key_error_message(),
+            "safety": none_safety,
         }
     api_key, model = cfg
 
@@ -56,13 +59,14 @@ def strategy_insights_from_headlines(*, articles: List[Dict[str, Any]]) -> Dict[
     ]
 
     try:
-        text, err = llm_chat_completion(
+        text, err, safety = guarded_llm_chat_completion(
             api_key=api_key,
             model=model,
             messages=messages,
             temperature=0.35,
             max_output_tokens=1000,
             timeout=60,
+            safety_profile=SafetyProfile.NEWS_INSIGHTS,
         )
         # #region agent log
         _agent_debug_log(
@@ -83,6 +87,7 @@ def strategy_insights_from_headlines(*, articles: List[Dict[str, Any]]) -> Dict[
                 "macro_todos": [],
                 "asset_todos": [],
                 "error": err,
+                "safety": safety,
             }
         assert text is not None
         m = re.search(r"\{[\s\S]*\}", text)
@@ -93,6 +98,7 @@ def strategy_insights_from_headlines(*, articles: List[Dict[str, Any]]) -> Dict[
                 "macro_todos": [],
                 "asset_todos": [],
                 "error": "unparseable model output",
+                "safety": safety,
             }
         parsed = json.loads(m.group(0))
         raw_cons = parsed.get("considerations") or []
@@ -112,6 +118,7 @@ def strategy_insights_from_headlines(*, articles: List[Dict[str, Any]]) -> Dict[
             "macro_todos": _sl("macro_todos", 6),
             "asset_todos": _sl("asset_todos", 6),
             "error": None,
+            "safety": safety,
         }
     except Exception as e:
         # #region agent log
@@ -128,4 +135,5 @@ def strategy_insights_from_headlines(*, articles: List[Dict[str, Any]]) -> Dict[
             "macro_todos": [],
             "asset_todos": [],
             "error": redact_secrets_for_client(str(e)),
+            "safety": none_safety,
         }

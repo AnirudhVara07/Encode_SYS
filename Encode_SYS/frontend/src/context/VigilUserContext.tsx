@@ -72,6 +72,13 @@ export function VigilUserProvider({ children }: { children: ReactNode }) {
     }
   }, [authHeaders]);
 
+  /** Pull is_pro / execution_mode when a token exists (replaces manual “Sync profile” on the dashboard). */
+  useEffect(() => {
+    const b = bearer.trim();
+    if (!b) return;
+    void refreshProfile();
+  }, [bearer, refreshProfile]);
+
   const setIsPro = useCallback(
     async (v: boolean) => {
       setIsProState(v);

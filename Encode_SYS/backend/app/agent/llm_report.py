@@ -4,7 +4,8 @@ import json
 import re
 from typing import Any, Dict, List
 
-from .llm_http import llm_chat_completion, llm_key_error_message, require_llm_config
+from .llm_http import guarded_llm_chat_completion, llm_key_error_message, require_llm_config
+from .llm_safety import SafetyProfile
 from .secrets_redact import redact_secrets_for_client
 
 
@@ -14,12 +15,14 @@ def suggest_improvements(
     autonomous_trades: List[Dict[str, Any]],
     blocked_sample: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
+    none_safety = {"level": "ok", "source": "none"}
     cfg = require_llm_config()
     if not cfg:
         return {
             "summary": "",
             "improvements": [],
             "error": llm_key_error_message(),
+            "safety": none_safety,
         }
     api_key, model = cfg
 
@@ -39,24 +42,31 @@ def suggest_improvements(
     ]
 
     try:
-        text, err = llm_chat_completion(
+        text, err, safety = guarded_llm_chat_completion(
             api_key=api_key,
             model=model,
             messages=messages,
             temperature=0.4,
             max_output_tokens=600,
             timeout=60,
+            safety_profile=SafetyProfile.REPORT,
         )
         if err:
             return {
                 "summary": "",
                 "improvements": [],
                 "error": err,
+                "safety": safety,
             }
         assert text is not None
         m = re.search(r"\{[\s\S]*\}", text)
         if not m:
-            return {"summary": text[:500], "improvements": [], "error": "unparseable model output"}
+            return {
+                "summary": text[:500],
+                "improvements": [],
+                "error": "unparseable model output",
+                "safety": safety,
+            }
         parsed = json.loads(m.group(0))
         imp = parsed.get("improvements") or []
         if not isinstance(imp, list):
@@ -68,10 +78,12 @@ def suggest_improvements(
             "summary": str(parsed.get("summary") or ""),
             "improvements": imp[:3],
             "error": None,
+            "safety": safety,
         }
     except Exception as e:
         return {
             "summary": "",
             "improvements": [],
             "error": redact_secrets_for_client(str(e)),
+            "safety": none_safety,
         }

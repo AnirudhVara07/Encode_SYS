@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from ..coinbase.candles import fetch_coinbase_candles_btc_usd, generate_synthetic_candles_btc_usd
-from .performance import summarize_fills
+from .performance import enrich_fills_newest_first, summarize_fills
 from .signals import compute_latest_execution_signal
 
 
@@ -77,7 +77,16 @@ def replay_vigil_backtest(
 
     def snap_equity(ts: float, price: float) -> None:
         eq = usdc + btc * price
-        equity.append({"t": ts, "usd_equity": round(eq, 8), "equity_usdc": round(eq, 8), "btc_price": price})
+        equity.append(
+            {
+                "t": ts,
+                "usd_equity": round(eq, 8),
+                "equity_usdc": round(eq, 8),
+                "btc_price": round(price, 4),
+                "btc_holdings": round(btc, 12),
+                "usdc_cash": round(usdc, 8),
+            }
+        )
 
     min_i = 40
     p0 = float(candles[min_i - 1]["close"])
@@ -133,10 +142,9 @@ def replay_vigil_backtest(
                     "ts": float(ts),
                     "reasoning": reasoning,
                     "execution_mode": "backtest",
-                    "quote_currency": "USDC",
+                    "quote_currency": "GBP",
                 }
             )
-            snap_equity(float(ts), price)
         elif sell_edges > buy_edges and btc > 1e-18:
             sell_btc = btc * sell_fraction
             proceeds = sell_btc * price
@@ -154,26 +162,35 @@ def replay_vigil_backtest(
                     "ts": float(ts),
                     "reasoning": reasoning,
                     "execution_mode": "backtest",
-                    "quote_currency": "USDC",
+                    "quote_currency": "GBP",
                 }
             )
-            snap_equity(float(ts), price)
 
-    if equity:
-        last_p = float(candles[-1]["close"])
-        snap_equity(float(candles[-1].get("start") or time.time()), last_p)
+        snap_equity(float(ts), price)
 
     fills_nf = list(reversed(fills))
+    fills_enriched = enrich_fills_newest_first(fills_nf)
     summary = summarize_fills(
         fills_newest_first=fills_nf,
         starting_quote_usdc=starting_usdc,
-        equity_curve=equity[-200:],
+        equity_curve=equity,
         label="Backtest",
     )
+    strategies_snapshot = [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "template_type": r["template_type"],
+            "params": dict(r["params"]),
+            "enabled": bool(r.get("enabled", True)),
+        }
+        for r in rows
+    ]
     return {
         "kind": "backtest",
         "lookback_hours": lookback_hours,
         "data_source": data_source,
-        "fills": fills_nf[:200],
+        "fills": fills_enriched[:200],
         "summary": summary,
+        "strategies": strategies_snapshot,
     }

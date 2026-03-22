@@ -1,0 +1,30 @@
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  EMBER CROSS · Vigil demo strategy                                       ║
+// ║                                                                          ║
+// ║  Upload this file under **Universal strategy import** on the dashboard ║
+// ║  or Real trading. Vigil maps it to RSICrossTrendFilter (RSI + EMA).      ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+//
+// @vigil:template RSICrossTrendFilter
+//
+// Optional optimizer grid (comment out to use Vigil’s built-in demo ranges)
+// @vigil:range rsi_len 8 21 1
+// @vigil:range rsi_lower 22 38 1
+// @vigil:range rsi_upper 62 82 1
+// @vigil:range ema_len 34 89 3
+
+rsi_len   = input.int(12, "Ember · RSI length")
+rsi_lower = input.int(28, "Ember · RSI oversold")
+rsi_upper = input.int(72, "Ember · RSI overbought")
+ema_len   = input.int(55, "Ember · trend EMA")
+
+// --- Illustrative only: Vigil does not execute this Pine on a chart. ---
+// Strategy in plain language (used by the import parser):
+// - Timeframe: 4h (not enforced in Vigil live; tune candles via lookback in the app).
+// - Indicators: RSI with length 12; exponential moving average on close with length 55.
+// - Entry: consider long exposure when RSI crosses up through 28 from below while price
+//   holds generally above the 55 EMA trend filter (dip-buy in an uptrend).
+// - Exit / risk-off: reduce when RSI crosses down through 72 from above, or when price
+//   closes clearly below the 55 EMA.
+// - Stop loss: not fixed in pips — use your own risk rule (e.g. % of equity).
+// - Take profit: partial exits into RSI above 72; remainder trails with structure.

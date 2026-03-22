@@ -6,7 +6,9 @@ https://openrouter.ai/docs/api/reference/overview
 
 from __future__ import annotations
 
+import json
 import os
+import time
 from typing import Any, Dict, List, Tuple
 
 import requests
@@ -14,6 +16,21 @@ import requests
 from .secrets_redact import redact_secrets_for_client
 
 _OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def _format_openrouter_error_body(data: Any) -> str:
+    """Readable client-safe message; OpenRouter often returns {\"error\": {\"message\", \"code\"}}."""
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            msg = str(err["message"]).strip().rstrip(".")
+            code = err.get("code")
+            suffix = f" (HTTP {code})" if code is not None else ""
+            return (
+                f"OpenRouter rejected the request{suffix}: {msg}. "
+                "Set a valid OPENROUTER_API_KEY (see https://openrouter.ai/keys)."
+            )
+    return redact_secrets_for_client(str(data))
 
 
 def openrouter_api_key() -> str:
@@ -67,7 +84,35 @@ def openrouter_chat_completion(
         return None, redact_secrets_for_client(str(e))
 
     if not res.ok:
-        return None, redact_secrets_for_client(str(data))
+        # #region agent log
+        try:
+            err_nested = data.get("error") if isinstance(data, dict) else None
+            _payload = {
+                "sessionId": "6d8367",
+                "runId": "pre",
+                "hypothesisId": "H1_H4",
+                "location": "openrouter_http.py:openrouter_chat_completion",
+                "message": "openrouter_non_ok_response",
+                "data": {
+                    "http_status": res.status_code,
+                    "has_error_key": isinstance(data, dict) and "error" in data,
+                    "nested_message": err_nested.get("message")
+                    if isinstance(err_nested, dict)
+                    else None,
+                    "nested_code": err_nested.get("code") if isinstance(err_nested, dict) else None,
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            with open(
+                "/Users/admin/Downloads/Encode_SYS-main/.cursor/debug-6d8367.log",
+                "a",
+                encoding="utf-8",
+            ) as _dbg:
+                _dbg.write(json.dumps(_payload, default=str) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        return None, _format_openrouter_error_body(data)
 
     choices = data.get("choices") or []
     if not choices:

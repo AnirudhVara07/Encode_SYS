@@ -25,6 +25,7 @@ export default defineConfig(({ mode }) => ({
       "/report": { target: backend, changeOrigin: true },
       "/news": { target: backend, changeOrigin: true },
       "/strategy": { target: backend, changeOrigin: true },
+      "/strategy/export": { target: backend, changeOrigin: true },
       "/profile": { target: backend, changeOrigin: true },
       "/ws": { target: backend, ws: true, changeOrigin: true },
     },

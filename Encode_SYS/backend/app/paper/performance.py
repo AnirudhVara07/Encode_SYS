@@ -45,6 +45,13 @@ def _fifo_realized_sells(fills_chrono: List[Dict[str, Any]]) -> Tuple[List[Dict[
     return out_rows, total_realized
 
 
+def enrich_fills_newest_first(fills_newest_first: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return fills newest-first with `realized_pnl_usd` on sells (FIFO cost basis)."""
+    chrono = list(reversed(fills_newest_first))
+    rows, _ = _fifo_realized_sells(chrono)
+    return list(reversed(rows))
+
+
 def _hold_stats(fills_chrono: List[Dict[str, Any]]) -> Optional[float]:
     """Average hours between buy and matching sell (FIFO), across closed sells."""
     buys_ts: List[float] = []

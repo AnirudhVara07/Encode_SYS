@@ -4,21 +4,28 @@ Vigil paper automation: multiple template strategies, edge-triggered majority vo
 
 from __future__ import annotations
 
+import os
+import re
 import threading
 import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Literal, Optional
 
 import requests
 
+from ..agent import execution_gate
 from ..agent import state as agent_state
 from ..agent.live_wallet import UPGRADE_MESSAGE, live_wallet
 from ..coinbase.candles import fetch_coinbase_candles_btc_usd, generate_synthetic_candles_btc_usd
+from ..coinbase.sandbox_client import create_market_ioc_order_sandbox
 from ..coinbase.spot_price import fetch_btc_usd_spot
 from . import portfolio as paper_portfolio
-from .signals import compute_latest_execution_signal
+from .paper_events import publish as publish_paper_event
+from .signals import compute_latest_execution_signal, compute_strategy_diagnostics
+
+OrderRouting = Literal["internal", "coinbase_sandbox"]
 
 MAX_LOG = 50
 MIN_INTERVAL_SEC = 60
@@ -41,15 +48,17 @@ class StrategyRow:
 
 @dataclass
 class AutopilotConfig:
-    interval_sec: float = 300.0
+    interval_sec: float = 60.0
     lookback_hours: int = 168
     buy_usd: float = 1000.0
     sell_fraction: float = 0.25
+    order_routing: OrderRouting = "internal"
     strategies: List[StrategyRow] = field(default_factory=list)
 
 
 _lock = threading.Lock()
 _config = AutopilotConfig(
+    order_routing="internal",
     strategies=[
         StrategyRow(
             id="demo-rsi",
@@ -58,7 +67,7 @@ _config = AutopilotConfig(
             params={"rsi_len": 14.0, "rsi_lower": 30.0, "rsi_upper": 70.0},
             enabled=True,
         ),
-    ]
+    ],
 )
 _running = False
 _stop = threading.Event()
@@ -68,6 +77,7 @@ _log: Deque[Dict[str, Any]] = deque(maxlen=MAX_LOG)
 _last_tick_unix: Optional[float] = None
 _last_data_source: Optional[str] = None
 _last_error: Optional[str] = None
+_last_tick_diagnostics: Optional[Dict[str, Any]] = None
 
 
 def _validate_strategy_row(row: StrategyRow) -> None:
@@ -93,6 +103,7 @@ def get_config_snapshot() -> Dict[str, Any]:
             "lookback_hours": _config.lookback_hours,
             "buy_usd": _config.buy_usd,
             "sell_fraction": _config.sell_fraction,
+            "order_routing": _config.order_routing,
             "strategies": [
                 {
                     "id": s.id,
@@ -112,6 +123,7 @@ def set_config(
     lookback_hours: int,
     buy_usd: float,
     sell_fraction: float,
+    order_routing: str,
     strategies: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     global _last_signals
@@ -123,6 +135,9 @@ def set_config(
         raise ValueError("buy_usd must be > 0")
     if sell_fraction <= 0 or sell_fraction > 1:
         raise ValueError("sell_fraction must be in (0, 1]")
+    routing = (order_routing or "internal").strip().lower()
+    if routing not in ("internal", "coinbase_sandbox"):
+        raise ValueError("order_routing must be internal or coinbase_sandbox")
 
     rows: List[StrategyRow] = []
     for item in strategies:
@@ -148,6 +163,7 @@ def set_config(
         _config.lookback_hours = int(lookback_hours)
         _config.buy_usd = float(buy_usd)
         _config.sell_fraction = float(sell_fraction)
+        _config.order_routing = routing  # type: ignore[assignment]
         _config.strategies = rows
         # Reset edge memory when strategy set changes
         _last_signals = {s.id: None for s in rows}
@@ -183,6 +199,7 @@ def _tick_once() -> None:
             lookback_hours=_config.lookback_hours,
             buy_usd=_config.buy_usd,
             sell_fraction=_config.sell_fraction,
+            order_routing=_config.order_routing,
             strategies=list(_config.strategies),
         )
         last_map = dict(_last_signals)
@@ -210,12 +227,19 @@ def _tick_once() -> None:
                 candles_raw=candles,
                 best_params=s.params,
             )
+            diag = compute_strategy_diagnostics(
+                template_type=s.template_type,
+                candles_raw=candles,
+                best_params=s.params,
+            )
         except Exception as e:
-            per_strategy.append({"id": s.id, "name": s.name, "signal": None, "error": str(e)})
+            per_strategy.append({"id": s.id, "name": s.name, "signal": None, "diagnostics": None, "error": str(e)})
             new_last[s.id] = prev
             continue
 
-        per_strategy.append({"id": s.id, "name": s.name, "signal": cur, "error": None})
+        per_strategy.append(
+            {"id": s.id, "name": s.name, "signal": cur, "diagnostics": diag, "error": None, "params": dict(s.params)}
+        )
         if cur == "BUY" and prev != "BUY":
             buy_edges += 1
         if cur == "SELL" and prev != "SELL":
@@ -224,7 +248,18 @@ def _tick_once() -> None:
 
     action = "hold"
     err_trade: Optional[str] = None
+    rule_code: Optional[str] = None
+    guardrail_message: Optional[str] = None
     sid = agent_state.get_autopilot_owner_session_id()
+    gate_session_sub: Optional[str] = None
+    if sid:
+        sess = agent_state.get_server_session(sid)
+        if isinstance(sess, dict):
+            cs = sess.get("sub")
+            if isinstance(cs, str) and cs.strip():
+                gate_session_sub = cs.strip()
+        if gate_session_sub is None:
+            gate_session_sub = sid
     mode = agent_state.get_execution_mode()
     is_pro = agent_state.get_session_is_pro(sid) if sid else False
     reasoning = (
@@ -233,6 +268,107 @@ def _tick_once() -> None:
             f"{p.get('name') or p.get('id')}:{p.get('signal')}" for p in per_strategy
         )
     )
+    product_id = (os.getenv("COINBASE_SANDBOX_PRODUCT_ID") or "BTC-GBP").strip() or "BTC-GBP"
+
+    def _sandbox_buy() -> None:
+        nonlocal action, err_trade, rule_code, guardrail_message
+        jwt = (os.getenv("COINBASE_BEARER_JWT") or "").strip()
+        if not jwt:
+            err_trade = "Exchange credentials not configured (server)"
+            action = "sandbox_no_credentials"
+            return
+        allowed, blocked = execution_gate.gate_or_block(
+            side="buy",
+            usd=cfg.buy_usd,
+            btc=None,
+            source="vigil",
+            paper_started=True,
+            session_sub=gate_session_sub,
+        )
+        if not allowed:
+            if blocked:
+                rule_code = str(blocked.get("rule_code") or "")
+                guardrail_message = str(blocked.get("message") or "")[:240]
+            err_trade = (
+                f"Trade blocked ({blocked.get('rule_code') if blocked else 'unknown'}): "
+                f"{blocked.get('message') if blocked else 'rule failure'}"
+            )
+            action = "blocked"
+            return
+        price, meta = fetch_btc_usd_spot(pair=product_id)
+        base_size = cfg.buy_usd / price
+        res = create_market_ioc_order_sandbox(
+            product_id=product_id,
+            side="BUY",
+            base_size_btc=base_size,
+            bearer_jwt=jwt,
+        )
+        if not res.success:
+            err_trade = str(res.raw)[:800] if res.raw else "Order rejected"
+            action = "sandbox_order_failed"
+            return
+        paper_portfolio.mirror_vigil_fill_after_gate(
+            side="buy",
+            usd=cfg.buy_usd,
+            btc=None,
+            price=price,
+            quote_meta=meta,
+            source="vigil",
+            reasoning=reasoning,
+            execution_mode="exchange",
+            extra_fill_fields={"coinbase_response": res.raw},
+        )
+        action = "buy_sandbox"
+
+    def _sandbox_sell(sell_btc: float) -> None:
+        nonlocal action, err_trade, rule_code, guardrail_message
+        jwt = (os.getenv("COINBASE_BEARER_JWT") or "").strip()
+        if not jwt:
+            err_trade = "Exchange credentials not configured (server)"
+            action = "sandbox_no_credentials"
+            return
+        allowed, blocked = execution_gate.gate_or_block(
+            side="sell",
+            usd=None,
+            btc=sell_btc,
+            source="vigil",
+            paper_started=True,
+            session_sub=gate_session_sub,
+        )
+        if not allowed:
+            if blocked:
+                rule_code = str(blocked.get("rule_code") or "")
+                guardrail_message = str(blocked.get("message") or "")[:240]
+            err_trade = (
+                f"Trade blocked ({blocked.get('rule_code') if blocked else 'unknown'}): "
+                f"{blocked.get('message') if blocked else 'rule failure'}"
+            )
+            action = "blocked"
+            return
+        price, meta = fetch_btc_usd_spot(pair=product_id)
+        res = create_market_ioc_order_sandbox(
+            product_id=product_id,
+            side="SELL",
+            base_size_btc=sell_btc,
+            bearer_jwt=jwt,
+        )
+        if not res.success:
+            err_trade = str(res.raw)[:800] if res.raw else "Order rejected"
+            action = "sandbox_order_failed"
+            return
+        paper_portfolio.mirror_vigil_fill_after_gate(
+            side="sell",
+            usd=None,
+            btc=sell_btc,
+            price=price,
+            quote_meta=meta,
+            source="vigil",
+            reasoning=reasoning,
+            execution_mode="exchange",
+            extra_fill_fields={"coinbase_response": res.raw},
+        )
+        action = "sell_sandbox"
+
     try:
         if buy_edges > sell_edges:
             if mode == "live":
@@ -240,7 +376,7 @@ def _tick_once() -> None:
                     err_trade = UPGRADE_MESSAGE
                     action = "upgrade_required"
                 else:
-                    price, _meta = fetch_btc_usd_spot()
+                    price, _meta = fetch_btc_usd_spot(pair=product_id)
                     res = live_wallet.try_execute(
                         side="buy",
                         usd=cfg.buy_usd,
@@ -254,12 +390,15 @@ def _tick_once() -> None:
                         action = "live_blocked"
                     else:
                         action = "live_buy_stub"
+            elif cfg.order_routing == "coinbase_sandbox":
+                _sandbox_buy()
             else:
                 paper_portfolio.market_order(
                     side="buy",
                     usd=cfg.buy_usd,
                     btc=None,
                     source="vigil",
+                    session_sub=gate_session_sub,
                     reasoning=reasoning,
                     execution_mode="paper",
                 )
@@ -274,7 +413,7 @@ def _tick_once() -> None:
                         err_trade = UPGRADE_MESSAGE
                         action = "upgrade_required"
                     else:
-                        price, _meta = fetch_btc_usd_spot()
+                        price, _meta = fetch_btc_usd_spot(pair=product_id)
                         res = live_wallet.try_execute(
                             side="sell",
                             usd=None,
@@ -288,12 +427,15 @@ def _tick_once() -> None:
                             action = "live_blocked"
                         else:
                             action = "live_sell_stub"
+                elif cfg.order_routing == "coinbase_sandbox":
+                    _sandbox_sell(sell_btc)
                 else:
                     paper_portfolio.market_order(
                         side="sell",
                         usd=None,
                         btc=sell_btc,
                         source="vigil",
+                        session_sub=gate_session_sub,
                         reasoning=reasoning,
                         execution_mode="paper",
                     )
@@ -302,28 +444,56 @@ def _tick_once() -> None:
                 action = "sell_skipped_no_btc"
         else:
             action = "hold"
+    except RuntimeError as e:
+        err_trade = str(e)
+        if err_trade.startswith("Trade blocked"):
+            action = "blocked"
+            m = re.match(r"Trade blocked \(([^)]+)\):\s*(.*)", err_trade, re.DOTALL)
+            if m:
+                rule_code = m.group(1).strip()
+                guardrail_message = m.group(2).strip()[:240]
+        else:
+            action = f"error:{e}"
     except Exception as e:
         err_trade = str(e)
         action = f"error:{e}"
+
+    tick_snapshot = {
+        "action": action,
+        "buy_edges": buy_edges,
+        "sell_edges": sell_edges,
+        "data_source": data_src,
+        "per_strategy": per_strategy,
+        "trade_error": err_trade,
+        "order_routing": cfg.order_routing,
+        "rule_code": rule_code,
+        "guardrail_message": guardrail_message,
+    }
 
     with _lock:
         _last_signals.update(new_last)
         _last_tick_unix = time.time()
         _last_data_source = data_src
         _last_error = err_trade
+        _last_tick_diagnostics = dict(tick_snapshot)
 
-    _append_log(
-        {
-            "level": "error" if err_trade else "info",
-            "message": f"tick {action} buy_edges={buy_edges} sell_edges={sell_edges}",
-            "action": action,
-            "buy_edges": buy_edges,
-            "sell_edges": sell_edges,
-            "data_source": data_src,
-            "per_strategy": per_strategy,
-            "trade_error": err_trade,
-        }
-    )
+    log_entry = {
+        "level": "error" if err_trade else "info",
+        "message": f"tick {action} buy_edges={buy_edges} sell_edges={sell_edges}",
+        **tick_snapshot,
+    }
+    _append_log(log_entry)
+
+    try:
+        publish_paper_event(
+            "vigil_tick",
+            {
+                "t": time.time(),
+                **tick_snapshot,
+            },
+        )
+    except Exception:
+        pass
 
 
 def _loop() -> None:
@@ -383,10 +553,12 @@ def status() -> Dict[str, Any]:
         log_list = list(_log)[-20:]
         return {
             "running": _running,
+            "kill_switch": agent_state.get_kill_switch(),
             "interval_sec": _config.interval_sec,
             "lookback_hours": _config.lookback_hours,
             "buy_usd": _config.buy_usd,
             "sell_fraction": _config.sell_fraction,
+            "order_routing": _config.order_routing,
             "strategies": [
                 {
                     "id": s.id,
@@ -401,5 +573,6 @@ def status() -> Dict[str, Any]:
             "last_tick_unix": _last_tick_unix,
             "last_data_source": _last_data_source,
             "last_error": _last_error,
+            "last_tick_diagnostics": _last_tick_diagnostics,
             "log": log_list,
         }

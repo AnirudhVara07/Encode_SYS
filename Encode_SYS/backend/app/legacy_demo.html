@@ -158,11 +158,11 @@
 
   <div class="card" style="margin-top: 20px;">
     <h2>Paper live simulation</h2>
-    <p class="hint">Fake USD + BTC balances. Prices come from Coinbase’s <b>public</b> BTC-USD spot API. Trades execute instantly at the latest quote (demo only — not your real Coinbase account).</p>
+    <p class="hint">Fake GBP + BTC balances. Prices come from Coinbase’s <b>public</b> BTC-GBP spot API. Trades execute instantly at the latest quote (demo only — not your real Coinbase account).</p>
 
     <div class="paper-toolbar">
       <div>
-        <label for="paperStartingUsd">Starting cash (USD)</label>
+        <label for="paperStartingUsd">Starting cash (GBP)</label>
         <input id="paperStartingUsd" type="number" step="1000" min="1000" value="100000" />
       </div>
       <button type="button" id="paperResetBtn">Start / reset portfolio</button>
@@ -172,18 +172,18 @@
 
     <div class="paper-ap-box">
       <h4>Vigil (rule-based automation)</h4>
-      <p class="hint" style="margin-top:0;">Uses the same Vigil template signals as overnight learning on hourly candles. Multiple strategies vote: on each tick, a strategy counts as a <b>buy edge</b> when its signal becomes BUY (was not BUY before), and a <b>sell edge</b> when it becomes SELL. If buy edges &gt; sell edges, Vigil buys <b>buy USD</b>; if sell edges &gt; buy edges, it sells <b>sell fraction</b> of your BTC. Manual Buy/Sell still work. Stop Vigil before saving config.</p>
+      <p class="hint" style="margin-top:0;">Uses the same Vigil template signals as overnight learning on hourly candles. Multiple strategies vote: on each tick, a strategy counts as a <b>buy edge</b> when its signal becomes BUY (was not BUY before), and a <b>sell edge</b> when it becomes SELL. If buy edges &gt; sell edges, Vigil buys <b>buy GBP</b>; if sell edges &gt; buy edges, it sells <b>sell fraction</b> of your BTC. Manual Buy/Sell still work. Stop Vigil before saving config.</p>
       <div class="paper-ap-grid">
         <div>
           <label for="paperApInterval">Interval (sec)</label>
-          <input id="paperApInterval" type="number" min="60" step="60" value="300" />
+          <input id="paperApInterval" type="number" min="60" step="60" value="60" />
         </div>
         <div>
           <label for="paperApLookback">Candle lookback (h)</label>
           <input id="paperApLookback" type="number" min="24" max="720" step="24" value="168" />
         </div>
         <div>
-          <label for="paperApBuyUsd">Vigil buy (USD)</label>
+          <label for="paperApBuyUsd">Vigil buy (GBP)</label>
           <input id="paperApBuyUsd" type="number" min="1" step="100" value="1000" />
         </div>
         <div>
@@ -204,15 +204,15 @@
 
     <div id="paperStatusPanel" style="display:none;">
       <div class="paper-status-grid">
-        <div class="paper-stat"><b>USD cash</b><span id="paperUsd">—</span></div>
+        <div class="paper-stat"><b>GBP cash</b><span id="paperUsd">—</span></div>
         <div class="paper-stat"><b>BTC balance</b><span id="paperBtc">—</span></div>
-        <div class="paper-stat"><b>BTC spot (USD)</b><span id="paperSpot">—</span></div>
-        <div class="paper-stat"><b>Mark equity (USD)</b><span id="paperEq">—</span></div>
+        <div class="paper-stat"><b>BTC spot (GBP)</b><span id="paperSpot">—</span></div>
+        <div class="paper-stat"><b>Mark equity (GBP)</b><span id="paperEq">—</span></div>
       </div>
 
       <div class="row">
         <div>
-          <label for="paperBuyUsd">Buy (spend USD)</label>
+          <label for="paperBuyUsd">Buy (spend GBP)</label>
           <input id="paperBuyUsd" type="number" step="100" min="1" value="1000" />
           <button type="button" id="paperBuyBtn" style="margin-top:8px;">Buy BTC</button>
         </div>
@@ -229,7 +229,7 @@
       <h4 style="margin-top: 18px;">Recent fills</h4>
       <div style="overflow-x:auto;">
         <table class="paper-fills">
-          <thead><tr><th>Time</th><th>Side</th><th>BTC</th><th>USD</th><th>Price</th></tr></thead>
+          <thead><tr><th>Time</th><th>Side</th><th>BTC</th><th>GBP</th><th>Price</th></tr></thead>
           <tbody id="paperFillsBody"><tr><td colspan="5">No fills yet.</td></tr></tbody>
         </table>
       </div>
@@ -267,9 +267,12 @@
 
     function fmtUsd(n) {
       if (n == null || Number.isNaN(Number(n))) return '—';
-      const v = Number(n);
-      const sign = v < 0 ? '−' : '';
-      return sign + '$' + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return new Intl.NumberFormat('en-GB', {
+        style: 'currency',
+        currency: 'GBP',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(Number(n));
     }
 
     function fmtWinRate(n) {
@@ -290,8 +293,8 @@
     function fmtDeltaUsd(n) {
       if (n == null || Number.isNaN(Number(n))) return '—';
       const v = Number(n);
-      const sign = v > 0 ? '+' : '';
-      return sign + fmtUsd(v);
+      if (v > 0) return '+' + fmtUsd(v);
+      return fmtUsd(v);
     }
 
     function fmtDeltaPlain(n, kind) {
@@ -343,8 +346,12 @@
 
       const usdFmt = (v) => {
         if (!Number.isFinite(v)) return '—';
-        const sign = v < 0 ? '−' : '';
-        return sign + '$' + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return new Intl.NumberFormat('en-GB', {
+          style: 'currency',
+          currency: 'GBP',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(v);
       };
 
       const timeTick = (ms) => {
@@ -419,7 +426,7 @@
           data: {
             datasets: [
               {
-                label: 'Net profit at this optimizer step (USD)',
+                label: 'Net profit at this optimizer step (GBP)',
                 data: points,
                 parsing: false,
                 borderColor: 'rgb(37, 99, 235)',
@@ -445,10 +452,15 @@
                 },
               },
               y: {
-                title: { display: true, text: 'Simulated net profit (USD)' },
+                title: { display: true, text: 'Simulated net profit (GBP)' },
                 min: ye.min,
                 max: ye.max,
-                ticks: { callback: (v) => '$' + Number(v).toLocaleString() },
+                ticks: {
+                  callback: (v) =>
+                    new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 }).format(
+                      Number(v),
+                    ),
+                },
               },
             },
           },
@@ -466,7 +478,7 @@
             data: {
               datasets: [
                 {
-                  label: 'Initial → final net profit (USD)',
+                  label: 'Initial → final net profit (GBP)',
                   data: [
                     { x: t0, y: baseline },
                     { x: t1, y: finalBest },
@@ -491,10 +503,15 @@
                   ticks: { callback: (v) => (Number.isFinite(v) ? timeTick(v) : '') },
                 },
                 y: {
-                  title: { display: true, text: 'Net profit (USD)' },
+                  title: { display: true, text: 'Net profit (GBP)' },
                   min: ye.min,
                   max: ye.max,
-                  ticks: { callback: (v) => '$' + Number(v).toLocaleString() },
+                  ticks: {
+                  callback: (v) =>
+                    new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 }).format(
+                      Number(v),
+                    ),
+                },
                 },
               },
             },
@@ -589,10 +606,15 @@
                 },
               },
               y: {
-                title: { display: true, text: 'Simulated equity (USD)' },
+                title: { display: true, text: 'Simulated equity (GBP)' },
                 min: ye.min,
                 max: ye.max,
-                ticks: { callback: (v) => '$' + Number(v).toLocaleString() },
+                ticks: {
+                  callback: (v) =>
+                    new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 }).format(
+                      Number(v),
+                    ),
+                },
               },
             },
           },
@@ -699,7 +721,7 @@
         <div class="report-section" id="reportEquitySection">
           <h4>Equity over market time (simulated)</h4>
           <div class="chart-wrap"><canvas id="reportEquityChart" aria-label="Equity curve chart"></canvas></div>
-          <p class="hint">Mark-to-market P&amp;L in USD at each candle: <b>gray</b> = your uploaded defaults, <b>green</b> = learned best parameters. Uses candle timestamps from the feed.</p>
+          <p class="hint">Mark-to-market P&amp;L in GBP at each candle: <b>gray</b> = your uploaded defaults, <b>green</b> = learned best parameters. Uses candle timestamps from the feed.</p>
         </div>` +
         (summaryText ? `<div class="report-section"><h4>What changed</h4><div class="report-summary">${esc(summaryText)}</div></div>` : '') +
         `<div class="report-section"><h4>Parameters: your file vs learned defaults</h4>
@@ -908,7 +930,7 @@
 
     function paperApFillFormFromStatus(d) {
       if (!d) return;
-      document.getElementById('paperApInterval').value = String(Math.round(Number(d.interval_sec) || 300));
+      document.getElementById('paperApInterval').value = String(Math.round(Number(d.interval_sec) || 60));
       document.getElementById('paperApLookback').value = String(d.lookback_hours || 168);
       document.getElementById('paperApBuyUsd').value = String(d.buy_usd || 1000);
       document.getElementById('paperApSellFrac').value = String(d.sell_fraction || 0.25);
@@ -981,7 +1003,7 @@
       try {
         const strategies = paperApCollectStrategies();
         const body = {
-          interval_sec: Number(document.getElementById('paperApInterval').value) || 300,
+          interval_sec: Number(document.getElementById('paperApInterval').value) || 60,
           lookback_hours: Number(document.getElementById('paperApLookback').value) || 168,
           buy_usd: Number(document.getElementById('paperApBuyUsd').value) || 1000,
           sell_fraction: Number(document.getElementById('paperApSellFrac').value) || 0.25,
@@ -1039,7 +1061,7 @@
         data: {
           datasets: [
             {
-              label: 'USD equity (mark)',
+              label: 'GBP equity (mark)',
               data: pts,
               parsing: false,
               borderColor: 'rgb(5, 150, 105)',
@@ -1074,10 +1096,15 @@
               },
             },
             y: {
-              title: { display: true, text: 'USD' },
+              title: { display: true, text: 'GBP' },
               min: lo - pad,
               max: hi + pad,
-              ticks: { callback: (v) => '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) },
+              ticks: {
+                callback: (v) =>
+                  new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 }).format(
+                    Number(v),
+                  ),
+              },
             },
           },
         },

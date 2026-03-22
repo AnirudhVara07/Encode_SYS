@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/button";
 import { useVigilUser } from "@/context/VigilUserContext";
 import {
   CIVIC_REDIRECT_PATH,
+  CIVIC_RETURN_TO_KEY,
   CIVIC_STATE_KEY,
   CIVIC_VERIFIER_KEY,
+  sanitizeCivicReturnTo,
 } from "@/lib/civicOAuth";
 
 /** Prevents a second effect run (e.g. React Strict Mode remount) from clearing PKCE state before the first run’s async work finishes. */
@@ -98,7 +100,10 @@ const CivicCallback = () => {
         setBearer(token);
         await refreshProfile();
         civicCallbackExchangeLockCode = null;
-        navigate("/dashboard", { replace: true });
+        const rawReturn = sessionStorage.getItem(CIVIC_RETURN_TO_KEY);
+        sessionStorage.removeItem(CIVIC_RETURN_TO_KEY);
+        const dest = sanitizeCivicReturnTo(rawReturn) ?? "/paper-trading";
+        navigate(dest, { replace: true });
       } catch (e) {
         civicCallbackExchangeLockCode = null;
         if (!cancelled) {
@@ -112,10 +117,10 @@ const CivicCallback = () => {
   }, [navigate, setBearer, refreshProfile]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-6 bg-background">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-6">
       <p className="text-sm text-muted-foreground text-center max-w-md">{message}</p>
       <Button asChild variant="outline">
-        <Link to="/dashboard">Go to dashboard</Link>
+        <Link to="/paper-trading">Go to Paper Trading</Link>
       </Button>
     </div>
   );

@@ -14,6 +14,7 @@ def check_trade_allowed(
     source: str,
     paper_started: bool,
     session_sub: Optional[str] = None,
+    book: str = "paper",
 ) -> Tuple[bool, str, str]:
     ctx = TradeContext(
         side=side,
@@ -22,6 +23,7 @@ def check_trade_allowed(
         source=source,
         paper_started=paper_started,
         session_sub=session_sub,
+        book=book,
     )
     return evaluate(ctx)
 
@@ -35,6 +37,7 @@ def gate_or_block(
     paper_started: bool,
     session_sub: Optional[str] = None,
     news_snapshot_id: Optional[str] = None,
+    book: str = "paper",
 ) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """
     If blocked, records blocked trade and returns (False, entry).
@@ -46,10 +49,15 @@ def gate_or_block(
         source=source,
         paper_started=paper_started,
         session_sub=session_sub,
+        book=book,
     )
     if ok:
         return True, None
-    extra: Dict[str, Any] = {}
+    extra: Dict[str, Any] = {
+        "book": (book or "paper").strip().lower(),
+    }
+    if session_sub:
+        extra["owner_sub"] = session_sub
     if news_snapshot_id:
         extra["news_snapshot_id"] = news_snapshot_id
     entry = agent_state.record_blocked(

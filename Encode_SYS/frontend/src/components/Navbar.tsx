@@ -1,18 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { Sun, Moon, User } from "lucide-react";
 import { startCivicLogin } from "@/lib/civicOAuth";
 import { useVigilUser } from "@/context/VigilUserContext";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
 const Navbar = () => {
   const navigate = useNavigate();
-  const { bearer, setBearer } = useVigilUser();
+  const { bearer, setBearer, isPro, setIsPro, executionMode, setExecutionMode } = useVigilUser();
   const loggedIn = Boolean(bearer.trim());
   const [open, setOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -58,7 +64,7 @@ const Navbar = () => {
     setOpen(false);
     void (async () => {
       try {
-        await startCivicLogin();
+        await startCivicLogin({ returnTo: window.location.pathname });
       } catch (e) {
         window.alert(e instanceof Error ? e.message : "Could not start Civic login. Is the backend running?");
       }
@@ -89,13 +95,41 @@ const Navbar = () => {
           </Link>
         </div>
 
-        <div className="flex items-center justify-center gap-3 sm:gap-8 text-xs sm:text-sm text-muted-foreground shrink-0 whitespace-nowrap">
-          <Link to="/dashboard" className="transition-colors hover:text-foreground">
-            Paper trade
-          </Link>
-          <Link to="/demo" className="transition-colors hover:text-foreground">
-            Use Vigil
-          </Link>
+        <div className="flex items-center justify-center gap-3 sm:gap-6 md:gap-8 text-xs sm:text-sm shrink-0 whitespace-nowrap">
+          <NavLink
+            to="/paper-trading"
+            className={({ isActive }) =>
+              cn("transition-colors hover:text-foreground", isActive ? "text-foreground font-medium" : "text-muted-foreground")
+            }
+          >
+            Paper Trading
+          </NavLink>
+          {loggedIn ? (
+            <NavLink
+              to="/real-trading"
+              className={({ isActive }) =>
+                cn("transition-colors hover:text-foreground", isActive ? "text-foreground font-medium" : "text-muted-foreground")
+              }
+            >
+              Real trading
+            </NavLink>
+          ) : null}
+          <NavLink
+            to="/demo"
+            className={({ isActive }) =>
+              cn("transition-colors hover:text-foreground", isActive ? "text-foreground font-medium" : "text-muted-foreground")
+            }
+          >
+            Backtesting
+          </NavLink>
+          <NavLink
+            to="/how-it-works"
+            className={({ isActive }) =>
+              cn("transition-colors hover:text-foreground", isActive ? "text-foreground font-medium" : "text-muted-foreground")
+            }
+          >
+            How it works
+          </NavLink>
         </div>
 
         <div className="flex flex-1 min-w-0 justify-end items-center gap-3">
@@ -127,13 +161,30 @@ const Navbar = () => {
                   </DropdownMenuTrigger>
                 </div>
                 <DropdownMenuContent
-                  className="w-40"
+                  className="w-56"
                   align="end"
                   side="bottom"
                   sideOffset={4}
                   onPointerEnter={openAccountMenu}
                   onPointerLeave={scheduleCloseAccountMenu}
                 >
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Session</DropdownMenuLabel>
+                  <DropdownMenuCheckboxItem
+                    checked={isPro}
+                    onCheckedChange={(v) => void setIsPro(Boolean(v))}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    Simulate Pro
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Autopilot execution</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={executionMode}
+                    onValueChange={(v) => void setExecutionMode(v as "paper" | "live")}
+                  >
+                    <DropdownMenuRadioItem value="paper">Paper</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="live">Live</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem className="cursor-pointer" onSelect={() => handleLogout()}>
                     Log out
                   </DropdownMenuItem>
@@ -172,21 +223,78 @@ const Navbar = () => {
 
       {open && (
         <div className="md:hidden border-t border-border/50 bg-background/95 backdrop-blur-xl px-6 py-4 flex flex-col gap-4">
+          <div className="flex flex-col gap-2 border-b border-border/50 pb-4">
+            <Link
+              to="/paper-trading"
+              className="text-sm text-muted-foreground hover:text-foreground"
+              onClick={() => setOpen(false)}
+            >
+              Paper Trading
+            </Link>
+            {loggedIn ? (
+              <Link
+                to="/real-trading"
+                className="text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => setOpen(false)}
+              >
+                Real trading
+              </Link>
+            ) : null}
+            <Link
+              to="/demo"
+              className="text-sm text-muted-foreground hover:text-foreground"
+              onClick={() => setOpen(false)}
+            >
+              Backtesting
+            </Link>
+            <Link
+              to="/how-it-works"
+              className="text-sm text-muted-foreground hover:text-foreground"
+              onClick={() => setOpen(false)}
+            >
+              How it works
+            </Link>
+          </div>
           <button onClick={() => setDark(!dark)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
             {dark ? <Sun size={16} /> : <Moon size={16} />}
             {dark ? "Light mode" : "Dark mode"}
           </button>
           {loggedIn ? (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                handleLogout();
-              }}
-              className="text-sm text-muted-foreground hover:text-foreground text-left"
-            >
-              Log out
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => void setIsPro(!isPro)}
+                className="text-sm text-muted-foreground hover:text-foreground text-left w-full"
+              >
+                Simulate Pro: {isPro ? "On" : "Off"}
+              </button>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => void setExecutionMode("paper")}
+                  className={`text-sm px-2 py-1 rounded border ${executionMode === "paper" ? "border-primary text-foreground" : "border-border text-muted-foreground"}`}
+                >
+                  Paper
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void setExecutionMode("live")}
+                  className={`text-sm px-2 py-1 rounded border ${executionMode === "live" ? "border-primary text-foreground" : "border-border text-muted-foreground"}`}
+                >
+                  Live
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  handleLogout();
+                }}
+                className="text-sm text-muted-foreground hover:text-foreground text-left"
+              >
+                Log out
+              </button>
+            </>
           ) : (
             <>
               <button onClick={() => { setOpen(false); handleLogin(); }} className="text-sm text-muted-foreground hover:text-foreground text-left">Log In</button>

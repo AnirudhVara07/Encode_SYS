@@ -91,10 +91,10 @@ def _derive_improvements_text(
 
     param_sentence = param_changes.rstrip(".")
     return (
-        f"Overnight learning {sign} net profit by {delta_profit:.2f} USD. "
+        f"Overnight learning {sign} net profit by {delta_profit:.2f} GBP. "
         f"Parameter updates: {param_sentence}. "
-        f"Baseline vs best: profit {baseline_result.net_profit_usd:.2f} -> {best_result.net_profit_usd:.2f} USD, "
-        f"max drawdown {baseline_result.max_drawdown_usd:.2f} -> {best_result.max_drawdown_usd:.2f} USD. "
+        f"Baseline vs best: profit {baseline_result.net_profit_usd:.2f} -> {best_result.net_profit_usd:.2f} GBP, "
+        f"max drawdown {baseline_result.max_drawdown_usd:.2f} -> {best_result.max_drawdown_usd:.2f} GBP. "
         f"{' '.join(narrative)} {safety}{extra}"
     )
 

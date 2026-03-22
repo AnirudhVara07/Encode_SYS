@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { formatDateGbFromIso } from "@/lib/dateFormat";
 import { cn } from "@/lib/utils";
 
 type StrategyInsights = {
@@ -221,7 +222,7 @@ const DemoAiNewsPanel = () => {
           <h2 className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight">AI summary &amp; headlines</h2>
           <p className="mt-2 text-sm text-muted-foreground max-w-2xl">
             Filtered financial headlines (MarketAux) plus a ChatGPT-class <strong className="font-medium text-foreground/80">AI summary</strong> of the
-            set — demo only, not advice.
+            set, demo only, not advice.
           </p>
         </div>
 
@@ -267,7 +268,7 @@ const DemoAiNewsPanel = () => {
                     >
                       <TodoColumn
                         title="Macro checklist"
-                        description="Rates, inflation, policy, FX, liquidity — tick off as you review your run."
+                        description="Rates, inflation, policy, FX, liquidity, tick off as you review your run."
                         items={insights.macro_todos}
                         idPrefix="macro"
                         checked={checked}
@@ -305,7 +306,7 @@ const DemoAiNewsPanel = () => {
                     insights.macro_todos.length === 0 &&
                     insights.asset_todos.length === 0 &&
                     !insights.error ? (
-                      <p className="text-sm text-muted-foreground">No AI output — add OPENROUTER_API_KEY in backend/.env and try again.</p>
+                      <p className="text-sm text-muted-foreground">No AI output, add OPENROUTER_API_KEY in backend/.env and try again.</p>
                     ) : null}
                     {!summaryLoading ? (
                       <Button type="button" variant="outline" size="sm" onClick={() => void fetchSummary()}>
@@ -336,7 +337,7 @@ const DemoAiNewsPanel = () => {
                       <CardHeader className="pb-2">
                         <CardDescription className="font-mono text-[11px] uppercase tracking-wide">
                           {a.source}
-                          {a.published_at ? ` · ${a.published_at.slice(0, 10)}` : ""}
+                          {a.published_at ? ` · ${formatDateGbFromIso(a.published_at)}` : ""}
                         </CardDescription>
                         <CardTitle className="text-base leading-snug">
                           <a

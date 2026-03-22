@@ -8,6 +8,7 @@ from typing import Any, Deque, Dict, List, Optional
 
 MAX_BLOCKED = 200
 MAX_SESSION_TRADES = 500
+_PENDING_PARSE_TTL_SEC = 3600
 
 _lock = threading.Lock()
 _kill_switch: bool = False
@@ -20,8 +21,10 @@ _session_trades: List[Dict[str, Any]] = []
 _live_stub_fills: Deque[Dict[str, Any]] = deque(maxlen=200)
 # In-memory sessions after Civic: session_id -> payload
 _sessions: Dict[str, Dict[str, Any]] = {}
-# FIFO lots for BTC-USD realized P&L: list of {btc_remaining, avg_cost_usd_per_btc}
+# FIFO lots for BTC-GBP realized P&L: list of {btc_remaining, avg_cost_usd_per_btc} (cost in quote currency)
 _fifo_lots: List[Dict[str, float]] = []
+# Universal strategy parser: parse_id -> { sid, created_at, strategy_json, detection, filename }
+_pending_universal_parses: Dict[str, Dict[str, Any]] = {}
 
 
 def get_flags() -> Dict[str, bool]:
@@ -110,6 +113,58 @@ def set_strategy_profile(profile: Dict[str, Any]) -> None:
         _strategy_profile = dict(profile)
 
 
+def _purge_stale_pending_unlocked() -> None:
+    now = time.time()
+    dead = [k for k, v in _pending_universal_parses.items() if now - float(v.get("created_at") or 0) > _PENDING_PARSE_TTL_SEC]
+    for k in dead:
+        _pending_universal_parses.pop(k, None)
+
+
+def store_pending_universal_parse(
+    parse_id: str,
+    *,
+    session_id: str,
+    strategy_json: Dict[str, Any],
+    detection: Dict[str, Any],
+    filename: str,
+) -> None:
+    global _pending_universal_parses
+    with _lock:
+        _purge_stale_pending_unlocked()
+        _pending_universal_parses[parse_id] = {
+            "sid": session_id,
+            "created_at": time.time(),
+            "strategy_json": dict(strategy_json),
+            "detection": dict(detection),
+            "filename": filename,
+        }
+
+
+def get_pending_universal_parse(parse_id: str) -> Optional[Dict[str, Any]]:
+    with _lock:
+        _purge_stale_pending_unlocked()
+        row = _pending_universal_parses.get(parse_id)
+        return dict(row) if row else None
+
+
+def update_pending_universal_parse(parse_id: str, strategy_json: Dict[str, Any]) -> bool:
+    with _lock:
+        _purge_stale_pending_unlocked()
+        row = _pending_universal_parses.get(parse_id)
+        if not row:
+            return False
+        row["strategy_json"] = dict(strategy_json)
+        return True
+
+
+def pop_pending_universal_parse(parse_id: str) -> Optional[Dict[str, Any]]:
+    global _pending_universal_parses
+    with _lock:
+        _purge_stale_pending_unlocked()
+        row = _pending_universal_parses.pop(parse_id, None)
+        return dict(row) if row else None
+
+
 def record_blocked(
     *,
     rule_code: str,
@@ -142,13 +197,30 @@ def list_blocked() -> List[Dict[str, Any]]:
         return list(_blocked_trades)
 
 
+def list_blocked_for(*, book: Optional[str] = None, owner_sub: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Filter blocked audit rows by book and (for coinbase_live) owner Civic sub."""
+    with _lock:
+        rows = list(_blocked_trades)
+    want_book = (book or "").strip().lower() or None
+    owner = (owner_sub or "").strip() or None
+    out: List[Dict[str, Any]] = []
+    for e in rows:
+        eb = str(e.get("book") or "paper").strip().lower()
+        if want_book is not None and eb != want_book:
+            continue
+        if eb == "coinbase_live" and owner is not None:
+            if e.get("owner_sub") != owner:
+                continue
+        out.append(dict(e))
+    return out
+
+
 def clear_session_data() -> None:
-    """Clear ledger, FIFO lots, and blocked list (e.g. new agent session or paper reset)."""
+    """Clear ledger and FIFO lots on paper reset. Guardrail block history is preserved."""
     global _session_trades, _fifo_lots
     with _lock:
         _session_trades = []
         _fifo_lots = []
-        _blocked_trades.clear()
 
 
 def store_server_session(session_id: str, payload: Dict[str, Any]) -> None:
@@ -182,7 +254,7 @@ def fifo_apply_buy(btc: float, price: float) -> None:
 
 
 def fifo_apply_sell(btc: float, price: float) -> float:
-    """Return realized P&L in USD for this sell (FIFO)."""
+    """Return realized P&L in quote currency (GBP) for this sell (FIFO)."""
     global _fifo_lots
     proceeds = btc * price
     cost = 0.0

@@ -2,15 +2,18 @@ from typing import Optional
 
 from . import env_bootstrap
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api.agent_routes import router as agent_root_router
+from .api.coinbase_live_routes import router as coinbase_live_router
 from .api.routes import get_marketaux_news
 from .api.routes import router as api_router
 from .api.paper_routes import router as paper_router
+from .coinbase_live.runner import ensure_scheduler_started
+from .debug_session_log import write_debug as _dbg_write
 
 app = FastAPI(title="Vigil Demo", version="0.1")
 app.add_middleware(
@@ -35,7 +38,10 @@ app.add_api_route("/api/marketaux-news", get_marketaux_news, methods=["GET"])
 
 app.include_router(api_router)
 app.include_router(paper_router, prefix="/api")
+app.include_router(coinbase_live_router, prefix="/api")
 app.include_router(agent_root_router)
+
+ensure_scheduler_started()
 
 
 @app.get("/")
@@ -70,6 +76,8 @@ def _is_reserved_backend_path(full_path: str) -> bool:
         return True
     root = full_path.split("/")[0]
     # Agent HTTP surface (single-segment GETs; POSTs use other routes)
+    if root == "strategy" and (full_path == "strategy" or full_path.startswith("strategy/")):
+        return True
     if root in {
         "status",
         "trades",
@@ -80,7 +88,6 @@ def _is_reserved_backend_path(full_path: str) -> bool:
         "stop",
         "unlock",
         "auth",
-        "strategy",
         "civic-oauth-config",
     }:
         if "/" not in full_path.rstrip("/"):
@@ -103,26 +110,46 @@ def _try_static_root_file(full_path: str) -> Optional[FileResponse]:
     return None
 
 
-@app.get("/{full_path:path}")
-def spa_history_fallback(full_path: str):
+@app.api_route(
+    "/{full_path:path}",
+    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+)
+def spa_history_fallback(full_path: str, request: Request):
     """
     React Router client routes (e.g. /demo). Registered after API routers; OpenAPI /docs etc. stay first.
+
+    Must accept non-GET methods: otherwise Starlette matches this path pattern and returns 405 for POST /api/...
+    when a stale process omitted newer API routers (confusing vs a clear 503).
     """
     if _is_reserved_backend_path(full_path):
         if full_path.startswith("api/"):
+            if request.method in ("GET", "HEAD"):
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "articles": [],
+                        "meta": None,
+                        "error": (
+                            "This API path is not available on the running server (stale or mismatched backend build). "
+                            "Stop and restart uvicorn from the current Vigil project (e.g. Encode_SYS/backend) so "
+                            "routes such as GET /api/marketaux-news are registered."
+                        ),
+                    },
+                )
             return JSONResponse(
                 status_code=503,
                 content={
-                    "articles": [],
-                    "meta": None,
-                    "error": (
-                        "This API path is not available on the running server (stale or mismatched backend build). "
-                        "Stop and restart uvicorn from the current Vigil project (e.g. Encode_SYS/backend) so "
-                        "routes such as GET /api/marketaux-news are registered."
+                    "detail": (
+                        "This API path is not handled by the running server (often a stale uvicorn after a code update). "
+                        "Restart uvicorn from Encode_SYS/backend. For Coinbase, link the account with "
+                        "POST /api/coinbase-live/link and a JSON body (api_key_id, api_key_secret, product_id)."
                     ),
                 },
             )
         raise HTTPException(status_code=404, detail="Not found")
+    if request.method not in ("GET", "HEAD"):
+        raise HTTPException(status_code=404, detail="Not found")
+
     root_file = _try_static_root_file(full_path)
     if root_file is not None:
         return root_file
@@ -131,5 +158,18 @@ def spa_history_fallback(full_path: str):
             status_code=503,
             detail="SPA not built. Run `npm install && npm run build` in Encode_SYS/frontend.",
         )
+    # region agent log
+    if full_path.rstrip("/") == "dashboard":
+        _dbg_write(
+            location="main.py:spa_history_fallback",
+            message="serve_spa_shell_for_dashboard",
+            data={
+                "full_path": full_path,
+                "static_index": str(_STATIC_INDEX),
+                "index_bytes": _STATIC_INDEX.stat().st_size if _STATIC_INDEX.is_file() else 0,
+            },
+            hypothesis_id="A",
+        )
+    # endregion
     return FileResponse(str(_STATIC_INDEX))
 

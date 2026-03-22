@@ -1,17 +1,10 @@
+import { formatTimeGb } from "@/lib/dateFormat";
+import { fmtGbpFixed, fmtGbpSpot } from "@/lib/formatGbp";
 import type { VigilMetrics, VigilRecentTrade } from "@/types/report";
 
-function fmtUsd(n: number) {
-  const sign = n < 0 ? "−" : "";
-  return `${sign}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function fmtPrice(n: number) {
-  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 function tradeTime(t: VigilRecentTrade) {
-  if (t.time_unix == null) return "—";
-  return new Date(t.time_unix * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (t.time_unix == null) return "-";
+  return formatTimeGb(t.time_unix);
 }
 
 export type MorningDebriefCardProps = {
@@ -28,7 +21,7 @@ export type MorningDebriefCardProps = {
  */
 const MorningDebriefCard = ({ metrics, trades, sessionLabel, sessionRight }: MorningDebriefCardProps) => {
   const stats = [
-    { label: "P&L", value: fmtUsd(metrics.net_profit_usd), color: "text-vigil-green" },
+    { label: "P&L", value: fmtGbpFixed(metrics.net_profit_usd), color: "text-vigil-green" },
     {
       label: "Win Rate",
       value: `${(metrics.win_rate * 100).toFixed(0)}%`,
@@ -37,22 +30,18 @@ const MorningDebriefCard = ({ metrics, trades, sessionLabel, sessionRight }: Mor
     { label: "Trades", value: String(metrics.trade_count), color: "text-foreground" },
     {
       label: "Max DD",
-      value: fmtUsd(-Math.abs(metrics.max_drawdown_usd)),
+      value: fmtGbpFixed(-Math.abs(metrics.max_drawdown_usd)),
       color: "text-vigil-red",
     },
   ];
 
   const rows = trades.map((t) => {
-    const abs = Math.abs(t.pnl_usd).toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-    const pnl = `${t.pnl_usd >= 0 ? "+" : "−"}$${abs}`;
+    const pnl = t.pnl_usd >= 0 ? `+${fmtGbpFixed(t.pnl_usd)}` : fmtGbpFixed(t.pnl_usd);
     return {
       asset: t.asset,
       action: t.action,
       time: tradeTime(t),
-      price: fmtPrice(t.exit_price),
+      price: fmtGbpSpot(t.exit_price),
       pnl,
       win: t.win,
     };

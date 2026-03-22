@@ -1,14 +1,9 @@
 import { useMemo } from "react";
+import { fmtGbpSpot } from "@/lib/formatGbp";
 import { cn } from "@/lib/utils";
 import { useCoinbaseTicker } from "@/hooks/useCoinbaseTicker";
 
-const DEFAULT_PRODUCTS = ["BTC-USD", "ETH-USD", "SOL-USD", "LINK-USD", "AVAX-USD"] as const;
-
-function fmtUsd(n: number) {
-  if (!Number.isFinite(n)) return "—";
-  const digits = n >= 1000 ? 2 : n >= 1 ? 2 : 4;
-  return `$${n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
-}
+const DEFAULT_PRODUCTS = ["BTC-GBP", "ETH-GBP", "SOL-GBP", "LINK-GBP", "AVAX-GBP"] as const;
 
 function pct24h(price: number, open: number) {
   if (!Number.isFinite(open) || open <= 0 || !Number.isFinite(price)) return null;
@@ -16,7 +11,7 @@ function pct24h(price: number, open: number) {
 }
 
 function shortSymbol(productId: string) {
-  return productId.replace("-USD", "");
+  return productId.replace(/-GBP$/i, "").replace(/-USD$/i, "");
 }
 
 type Props = {
@@ -59,7 +54,7 @@ const CoinbaseLiveMarkets = ({
           <div className="min-w-0">
             <div className="font-mono text-sm font-medium truncate">Live markets</div>
             <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground truncate">
-              Coinbase spot · USD pairs
+              Coinbase spot · GBP pairs
             </p>
           </div>
         </div>
@@ -90,18 +85,18 @@ const CoinbaseLiveMarkets = ({
                 <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
                   {label}
                 </div>
-                <div className="font-mono text-lg font-semibold tabular-nums tracking-tight">{fmtUsd(t.price)}</div>
+                <div className="font-mono text-lg font-semibold tabular-nums tracking-tight">{fmtGbpSpot(t.price)}</div>
                 <div
                   className={cn(
                     "font-mono text-xs tabular-nums mt-0.5",
                     change == null ? "text-muted-foreground" : up ? "text-vigil-green" : "text-vigil-red",
                   )}
                 >
-                  {change == null ? "24h —" : `${up ? "+" : "−"}${Math.abs(change).toFixed(2)}%`}
+                  {change == null ? "24h, n/a" : `${up ? "+" : "−"}${Math.abs(change).toFixed(2)}%`}
                 </div>
                 {variant === "full" && Number.isFinite(t.bestBid) && Number.isFinite(t.bestAsk) ? (
                   <div className="font-mono text-[10px] text-muted-foreground mt-2 tabular-nums">
-                    Bid {fmtUsd(t.bestBid)} · Ask {fmtUsd(t.bestAsk)}
+                    Bid {fmtGbpSpot(t.bestBid)} · Ask {fmtGbpSpot(t.bestAsk)}
                   </div>
                 ) : null}
               </div>

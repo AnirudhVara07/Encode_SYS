@@ -1,28 +1,33 @@
+import { cn } from "@/lib/utils";
 import { useScrollReveal } from "./useScrollReveal";
 
 const steps = [
   {
     n: "01",
     title: "Teach Vigil your style",
-    body: "Sync a strategy profile from past trades or upload a Vigil-tagged Pine template. The demo learns parameters against BTC-USD candles.",
+    body: "Sync a strategy profile from past trades or upload a Vigil-tagged Pine template. The demo learns parameters against BTC-GBP candles.",
   },
   {
     n: "02",
     title: "Paper Vigil runs the rules",
-    body: "Majority-vote automation and agent guardrails evaluate every simulated order — same gates you’d use before going live.",
+    body: "Majority-vote automation and agent guardrails evaluate every simulated order, same gates you’d use before going live.",
   },
   {
     n: "03",
     title: "Wake up to the debrief",
-    body: "Overnight optimization rewrites Pine, surfaces metrics, and suggests what to try next — without promising returns.",
+    body: "Overnight optimization rewrites Pine, surfaces metrics, and suggests what to try next, without promising returns.",
   },
 ];
 
-const HowItWorks = () => {
+type HowItWorksProps = {
+  className?: string;
+};
+
+const HowItWorks = ({ className }: HowItWorksProps) => {
   const { ref, isVisible } = useScrollReveal();
 
   return (
-    <section id="how-it-works" className="relative py-32 px-6 scroll-mt-24" ref={ref}>
+    <section id="how-it-works" className={cn("relative py-32 px-6 scroll-mt-24", className)} ref={ref}>
       <div className="container mx-auto max-w-5xl">
         <div
           className={`text-center mb-16 transition-all duration-700 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"}`}
@@ -30,7 +35,7 @@ const HowItWorks = () => {
           <span className="font-mono text-xs tracking-[0.3em] uppercase text-primary">How it works</span>
           <h2 className="mt-4 text-4xl sm:text-5xl font-bold tracking-tight">Three beats</h2>
           <p className="mt-4 text-muted-foreground max-w-2xl mx-auto">
-            From template or profile to simulated execution and morning report — all in the demo stack.
+            From template or profile to simulated execution and morning report, all in the demo stack.
           </p>
         </div>
 

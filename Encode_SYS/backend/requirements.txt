@@ -4,3 +4,7 @@ python-dotenv
 requests
 python-multipart
 PyJWT
+pypdf>=4.0
+cdp-sdk
+cryptography
+web3>=6.0

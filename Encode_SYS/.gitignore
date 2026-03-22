@@ -2,6 +2,7 @@
 # These paths apply if this folder is used as a git root.
 
 .logs/
+backend/data/
 backend/.env
 .env
 .env.local

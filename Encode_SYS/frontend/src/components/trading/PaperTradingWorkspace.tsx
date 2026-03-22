@@ -1,12 +1,23 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useCoinbaseTicker } from "@/hooks/useCoinbaseTicker";
+import { fmtGbp, fmtGbpSpot } from "@/lib/formatGbp";
 import { cn } from "@/lib/utils";
 
 const TEMPLATES = ["RSIThresholdReversion", "RSICrossTrendFilter", "EMACrossover"] as const;
@@ -16,6 +27,86 @@ const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
   RSICrossTrendFilter: { rsi_len: 14, rsi_lower: 30, rsi_upper: 70, ema_len: 50 },
   EMACrossover: { ema_fast: 10, ema_slow: 30 },
 };
+
+const PARAM_LABELS: Record<string, string> = {
+  rsi_len: "RSI length",
+  rsi_lower: "RSI oversold",
+  rsi_upper: "RSI overbought",
+  ema_len: "EMA length",
+  ema_fast: "Fast EMA",
+  ema_slow: "Slow EMA",
+};
+
+const QUOTE_POLL_MS = 60_000;
+
+function paramStep(key: string): number {
+  if (key.includes("frac") || key === "sell_fraction") return 0.05;
+  return 1;
+}
+
+function StepNum({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  disabled?: boolean;
+}) {
+  const s = step ?? 1;
+  const n = Number.parseFloat(value);
+  const bump = (dir: number) => {
+    const base = Number.isFinite(n) ? n : 0;
+    let next = base + dir * s;
+    if (min != null) next = Math.max(min, next);
+    if (max != null) next = Math.min(max, next);
+    onChange(String(next));
+  };
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</Label>
+      <div className="flex items-stretch rounded-md border border-border/80 bg-muted/25 overflow-hidden">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-9 w-9 shrink-0 rounded-none border-r border-border/60 px-0 text-lg leading-none"
+          disabled={disabled}
+          onClick={() => bump(-1)}
+          aria-label="Decrease"
+        >
+          −
+        </Button>
+        <Input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          className="h-9 border-0 rounded-none text-center font-mono text-sm shadow-none focus-visible:ring-0"
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-9 w-9 shrink-0 rounded-none border-l border-border/60 px-0 text-lg leading-none"
+          disabled={disabled}
+          onClick={() => bump(1)}
+          aria-label="Increase"
+        >
+          +
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export type PaperSnapshot = {
   started?: boolean;
@@ -40,6 +131,7 @@ type AutopilotSnapshot = {
   lookback_hours?: number;
   buy_usd?: number;
   sell_fraction?: number;
+  order_routing?: string;
   strategies?: AutopilotStrategy[];
   last_error?: string | null;
 };
@@ -51,17 +143,10 @@ type Props = {
   setBanner: (s: string | null) => void;
   busy: boolean;
   setBusy: (v: boolean) => void;
-  /** When true, full agent autopilot may also be on — show context */
   agentAutopilotHint?: boolean;
-  /** So parent can disable “Start agent” while paper vigil runs (same autopilot mutex). */
   onPaperVigilRunningChange?: (running: boolean) => void;
-};
-
-const fmtUsd = (n: number | null | undefined) => {
-  if (n == null || Number.isNaN(n)) return "—";
-  const v = Number(n);
-  const s = v < 0 ? "−" : "";
-  return `${s}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  strategyRefreshEpoch?: number;
+  paperStrategyInject?: { seq: number; strategies: AutopilotStrategy[] } | null;
 };
 
 export function PaperTradingWorkspace({
@@ -73,15 +158,16 @@ export function PaperTradingWorkspace({
   setBusy,
   agentAutopilotHint,
   onPaperVigilRunningChange,
+  strategyRefreshEpoch = 0,
+  paperStrategyInject = null,
 }: Props) {
   const [startingUsdc, setStartingUsdc] = useState("10000");
-  const [buySpend, setBuySpend] = useState("500");
-  const [sellBtc, setSellBtc] = useState("0.001");
   const [ap, setAp] = useState<AutopilotSnapshot | null>(null);
-  const [apInterval, setApInterval] = useState("300");
+  const [apInterval, setApInterval] = useState("60");
   const [apLookback, setApLookback] = useState("168");
   const [apBuyUsd, setApBuyUsd] = useState("1000");
   const [apSellFrac, setApSellFrac] = useState("0.25");
+  const [apOrderRouting, setApOrderRouting] = useState<"internal" | "coinbase_sandbox">("internal");
   const [strategies, setStrategies] = useState<AutopilotStrategy[]>([]);
 
   const loadAutopilot = useCallback(async () => {
@@ -94,10 +180,12 @@ export function PaperTradingWorkspace({
       const d = (await r.json()) as AutopilotSnapshot;
       setAp(d);
       onPaperVigilRunningChange?.(Boolean(d.running));
-      setApInterval(String(Math.round(d.interval_sec ?? 300)));
+      setApInterval(String(Math.round(d.interval_sec ?? 60)));
       setApLookback(String(d.lookback_hours ?? 168));
       setApBuyUsd(String(d.buy_usd ?? 1000));
       setApSellFrac(String(d.sell_fraction ?? 0.25));
+      const routing = d.order_routing === "coinbase_sandbox" ? "coinbase_sandbox" : "internal";
+      setApOrderRouting(routing);
       if (d.strategies?.length) {
         setStrategies(
           d.strategies.map((s) => ({
@@ -123,7 +211,28 @@ export function PaperTradingWorkspace({
 
   useEffect(() => {
     void loadAutopilot();
-  }, [loadAutopilot, paper?.started]);
+  }, [loadAutopilot, paper?.started, strategyRefreshEpoch]);
+
+  useEffect(() => {
+    const rows = paperStrategyInject?.strategies;
+    if (!rows?.length) return;
+    setStrategies(rows.map((s) => ({ ...s, params: { ...s.params } })));
+  }, [paperStrategyInject?.seq]);
+
+  const started = Boolean(paper?.started);
+
+  /** Keep paper book spot mark fresh without a manual button (server fetch once per minute). */
+  useEffect(() => {
+    if (!started) return;
+    const run = () => {
+      void fetch("/api/paper/quote")
+        .then((r) => (r.ok ? onRefreshPaper() : undefined))
+        .catch(() => {});
+    };
+    run();
+    const id = window.setInterval(run, QUOTE_POLL_MS);
+    return () => clearInterval(id);
+  }, [started, onRefreshPaper]);
 
   const resetPaper = async () => {
     const n = Math.max(100, Number(startingUsdc) || 10_000);
@@ -140,50 +249,9 @@ export function PaperTradingWorkspace({
       await onRefreshPaper();
       await onRefreshPerf();
       await loadAutopilot();
-      setBanner(`Paper portfolio ready with ${n.toLocaleString()} USDC (simulated).`);
+      setBanner(`Paper portfolio ready with ${n.toLocaleString()} GBP (simulated).`);
     } catch (e) {
       setBanner(e instanceof Error ? e.message : "Reset failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const refreshQuote = async () => {
-    setBusy(true);
-    setBanner(null);
-    try {
-      const r = await fetch("/api/paper/quote");
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Quote failed");
-      await onRefreshPaper();
-      setBanner("Spot price refreshed.");
-    } catch (e) {
-      setBanner(e instanceof Error ? e.message : "Quote failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const manualTrade = async (side: "buy" | "sell") => {
-    setBusy(true);
-    setBanner(null);
-    try {
-      const body =
-        side === "buy"
-          ? { side: "buy", usd: Number(buySpend) || 0 }
-          : { side: "sell", btc: Number(sellBtc) || 0 };
-      const r = await fetch("/api/paper/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Trade failed");
-      await onRefreshPaper();
-      await onRefreshPerf();
-      setBanner(`Manual ${side} filled at latest spot (paper).`);
-    } catch (e) {
-      setBanner(e instanceof Error ? e.message : "Trade failed");
     } finally {
       setBusy(false);
     }
@@ -202,7 +270,7 @@ export function PaperTradingWorkspace({
         try {
           params = JSON.parse(JSON.stringify(row.params));
         } catch {
-          throw new Error(`Invalid params JSON for ${row.name || row.id}`);
+          throw new Error(`Invalid params for ${row.name || row.id}`);
         }
         return {
           id: row.id,
@@ -216,10 +284,11 @@ export function PaperTradingWorkspace({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          interval_sec: Number(apInterval) || 300,
+          interval_sec: Number(apInterval) || 60,
           lookback_hours: Number(apLookback) || 168,
           buy_usd: Number(apBuyUsd) || 1000,
           sell_fraction: Number(apSellFrac) || 0.25,
+          order_routing: apOrderRouting,
           strategies: parsed,
         }),
       });
@@ -244,7 +313,7 @@ export function PaperTradingWorkspace({
       const snap = d as AutopilotSnapshot;
       setAp(snap);
       onPaperVigilRunningChange?.(Boolean(snap.running));
-      setBanner("Paper Vigil is running — rule-based trades on your simulated portfolio (no bearer token).");
+      setBanner("Paper Vigil is running, rule-based trades on your simulated portfolio (no bearer token).");
     } catch (e) {
       setBanner(e instanceof Error ? e.message : "Start failed");
     } finally {
@@ -262,7 +331,7 @@ export function PaperTradingWorkspace({
       const snap = d as AutopilotSnapshot;
       setAp(snap);
       onPaperVigilRunningChange?.(Boolean(snap.running));
-      setBanner("Paper Vigil stopped. Adjust config or run manual trades.");
+      setBanner("Paper Vigil stopped. Adjust config or restart when ready.");
     } catch (e) {
       setBanner(e instanceof Error ? e.message : "Stop failed");
     } finally {
@@ -288,18 +357,34 @@ export function PaperTradingWorkspace({
     setStrategies((prev) => (prev.length <= 1 ? prev : prev.filter((s) => s.id !== id)));
   };
 
+  const setStrategyParam = (idx: number, key: string, num: number) => {
+    setStrategies((prev) =>
+      prev.map((s, i) => (i === idx ? { ...s, params: { ...s.params, [key]: num } } : s)),
+    );
+  };
+
   const vigilRunning = Boolean(ap?.running);
-  const started = Boolean(paper?.started);
+
+  const { ticks: paperBtcGbpTicks } = useCoinbaseTicker(["BTC-GBP"]);
+  const paperLiveBtcGbpPx = useMemo(() => {
+    const t = paperBtcGbpTicks["BTC-GBP"];
+    if (!t) return null;
+    const ask = Number(t.bestAsk);
+    if (Number.isFinite(ask) && ask > 0) return ask;
+    const p = Number(t.price);
+    return Number.isFinite(p) && p > 0 ? p : null;
+  }, [paperBtcGbpTicks]);
 
   return (
     <Card className="border-amber-500/30 bg-amber-500/[0.03] dark:bg-amber-500/[0.06]">
       <CardHeader>
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
-            <CardTitle className="text-xl text-amber-800 dark:text-amber-200">Paper trading — test first</CardTitle>
+            <CardTitle className="text-xl text-amber-800 dark:text-amber-200">Paper book &amp; automation setup</CardTitle>
             <CardDescription className="mt-2 max-w-3xl">
-              Practice on simulated USDC: manual orders, tune Vigil strategies, then run <strong>Paper Vigil</strong>{" "}
-              (automation) <em>before</em> starting the full AI agent. No Civic token required for this section.
+              Part of <strong>step 2</strong>: seed the simulated portfolio, then configure and start{" "}
+              <strong>Paper Vigil</strong>. Spot marks refresh <strong>every minute</strong> while the book is active.{" "}
+              <strong>Step 3</strong> is the trading floor below.
             </CardDescription>
           </div>
           {vigilRunning ? (
@@ -315,20 +400,20 @@ export function PaperTradingWorkspace({
       </CardHeader>
       <CardContent className="space-y-8">
         <Alert>
-          <AlertTitle className="text-sm font-semibold">Suggested flow</AlertTitle>
+          <AlertTitle className="text-sm font-semibold">Step 2 checklist</AlertTitle>
           <AlertDescription className="text-sm space-y-1 mt-2">
             <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-              <li>Reset paper and optionally change starting USDC.</li>
               <li>
-                Place <strong>manual</strong> buys/sells to learn the book, or jump to Vigil config.
+                <strong>Portfolio:</strong> set starting GBP and <strong>Reset / enable paper</strong>. BTC mark updates
+                automatically each minute.
               </li>
               <li>
-                Save <strong>Vigil</strong> templates &amp; params, then <strong>Start Paper Vigil</strong> to mirror
-                how the AI will vote — still 100% simulated.
+                <strong>Paper Vigil:</strong> tune timing and templates below, <strong>Save Vigil config</strong>, then{" "}
+                <strong>Start Paper Vigil</strong>. Watch ticks in <strong>step 3 · Trading floor</strong>.
               </li>
               <li>
-                When results look good, use <strong>Start agent</strong> below (needs token) for news, Civic, and
-                optional live execution.
+                For news + Civic + optional live execution, use <strong>Start agent</strong> at the bottom (requires
+                sign-in).
               </li>
             </ol>
           </AlertDescription>
@@ -344,14 +429,13 @@ export function PaperTradingWorkspace({
           </Alert>
         ) : null}
 
-        {/* Step 1 */}
-        <section className="space-y-3">
-          <h3 className="text-sm font-semibold font-mono uppercase tracking-widest text-muted-foreground">
-            1 · Portfolio
+        <section className="space-y-4">
+          <h3 className="text-xs font-semibold font-mono uppercase tracking-widest text-muted-foreground border-b border-border/60 pb-2">
+            Simulated portfolio
           </h3>
           <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-end">
             <div className="space-y-1.5">
-              <Label htmlFor="start-usdc">Starting USDC (simulated)</Label>
+              <Label htmlFor="start-usdc">Starting GBP (simulated)</Label>
               <Input
                 id="start-usdc"
                 type="number"
@@ -365,227 +449,242 @@ export function PaperTradingWorkspace({
             <Button onClick={() => void resetPaper()} disabled={busy}>
               Reset / enable paper
             </Button>
-            <Button type="button" variant="outline" onClick={() => void refreshQuote()} disabled={busy || !started}>
-              Refresh spot quote
-            </Button>
           </div>
           {started ? (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm font-mono pt-2">
               <div>
-                <span className="text-muted-foreground text-xs block">USDC cash</span>
-                {fmtUsd(paper?.usd_cash)}
+                <span className="text-muted-foreground text-xs block">GBP cash</span>
+                {fmtGbp(paper?.usd_cash)}
               </div>
               <div>
                 <span className="text-muted-foreground text-xs block">BTC</span>
-                {paper?.btc_balance != null ? Number(paper.btc_balance).toFixed(8) : "—"}
+                {paper?.btc_balance != null ? Number(paper.btc_balance).toFixed(8) : "-"}
               </div>
               <div>
                 <span className="text-muted-foreground text-xs block">Mark equity</span>
-                {fmtUsd(paper?.usd_equity_mark)}
+                {fmtGbp(paper?.usd_equity_mark)}
               </div>
               <div>
-                <span className="text-muted-foreground text-xs block">BTC spot</span>
-                {fmtUsd(paper?.last_btc_price_usd)}
+                <span className="text-muted-foreground text-xs block">BTC spot (book)</span>
+                {paper?.last_btc_price_usd != null ? fmtGbpSpot(paper.last_btc_price_usd) : "-"}
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">Reset paper to unlock manual trading and Vigil.</p>
+            <p className="text-sm text-muted-foreground">Reset paper to unlock Vigil configuration.</p>
           )}
+          {started && paperLiveBtcGbpPx != null ? (
+            <p className="text-xs text-muted-foreground">
+              Live BTC-GBP ticker (reference): <span className="font-mono text-foreground">{fmtGbpSpot(paperLiveBtcGbpPx)}</span>
+            </p>
+          ) : null}
         </section>
 
         <Separator />
 
-        {/* Step 2 manual */}
-        <section className="space-y-3">
-          <h3 className="text-sm font-semibold font-mono uppercase tracking-widest text-muted-foreground">
-            2 · Manual trades (you in control)
+        <section className="space-y-6">
+          <h3 className="text-xs font-semibold font-mono uppercase tracking-widest text-muted-foreground border-b border-border/60 pb-2">
+            Paper Vigil — automation
           </h3>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-2 rounded-lg border border-border p-4 bg-background/80">
-              <Label htmlFor="manual-buy">Spend USDC</Label>
-              <div className="flex gap-2 flex-wrap">
-                <Input
-                  id="manual-buy"
-                  type="number"
-                  min={1}
-                  step={100}
-                  value={buySpend}
-                  onChange={(e) => setBuySpend(e.target.value)}
-                  disabled={!started || busy}
-                />
-                <Button onClick={() => void manualTrade("buy")} disabled={!started || busy}>
-                  Buy BTC
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2 rounded-lg border border-border p-4 bg-background/80">
-              <Label htmlFor="manual-sell">Sell BTC size</Label>
-              <div className="flex gap-2 flex-wrap">
-                <Input
-                  id="manual-sell"
-                  type="number"
-                  min={1e-8}
-                  step={0.0001}
-                  value={sellBtc}
-                  onChange={(e) => setSellBtc(e.target.value)}
-                  disabled={!started || busy}
-                />
-                <Button variant="secondary" onClick={() => void manualTrade("sell")} disabled={!started || busy}>
-                  Sell BTC
-                </Button>
+          <p className="text-sm text-muted-foreground">
+            Same template signals as overnight learning. Activity streams in <strong>step 3 · Trading floor</strong>.
+            Trades stay <strong>100% simulated</strong> unless you route sandbox orders (server credentials required).
+          </p>
+
+          <div className="rounded-lg border border-border/70 bg-muted/15 p-4 space-y-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Execution</p>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Order routing</Label>
+                <Select
+                  value={apOrderRouting}
+                  onValueChange={(v) => setApOrderRouting(v as "internal" | "coinbase_sandbox")}
+                  disabled={vigilRunning || busy}
+                >
+                  <SelectTrigger className="h-10 bg-background/80">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="internal">Internal book (spot-priced fills)</SelectItem>
+                    <SelectItem value="coinbase_sandbox">Coinbase sandbox IOC + mirrored book</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>
-        </section>
 
-        <Separator />
-
-        {/* Step 3 Vigil */}
-        <section className="space-y-4">
-          <h3 className="text-sm font-semibold font-mono uppercase tracking-widest text-muted-foreground">
-            3 · Vigil strategies (paper automation)
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Same template signals as overnight learning. Paper Vigil runs on a timer and trades your{" "}
-            <strong>simulated</strong> balances only.
-          </p>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="space-y-1.5">
-              <Label>Interval (sec)</Label>
-              <Input
-                type="number"
+          <div className="rounded-lg border border-border/70 bg-muted/15 p-4 space-y-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Timing &amp; data</p>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <StepNum
+                label="Interval (sec)"
+                value={apInterval}
+                onChange={setApInterval}
                 min={60}
                 step={60}
-                value={apInterval}
-                onChange={(e) => setApInterval(e.target.value)}
                 disabled={vigilRunning || busy}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Candle lookback (h)</Label>
-              <Input
-                type="number"
+              <StepNum
+                label="Lookback (hours)"
+                value={apLookback}
+                onChange={setApLookback}
                 min={24}
                 max={720}
                 step={24}
-                value={apLookback}
-                onChange={(e) => setApLookback(e.target.value)}
-                disabled={vigilRunning || busy}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Vigil buy (USDC)</Label>
-              <Input
-                type="number"
-                min={1}
-                step={100}
-                value={apBuyUsd}
-                onChange={(e) => setApBuyUsd(e.target.value)}
-                disabled={vigilRunning || busy}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Sell fraction</Label>
-              <Input
-                type="number"
-                min={0.01}
-                max={1}
-                step={0.05}
-                value={apSellFrac}
-                onChange={(e) => setApSellFrac(e.target.value)}
                 disabled={vigilRunning || busy}
               />
             </div>
           </div>
 
-          <div className="space-y-3">
-            {strategies.map((row, idx) => (
-              <div
-                key={row.id}
-                className={cn(
-                  "rounded-lg border border-border p-4 space-y-3 bg-background/80",
-                  !row.enabled && "opacity-70",
-                )}
-              >
-                <div className="flex flex-wrap gap-2 items-center justify-between">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      className="max-w-[200px]"
-                      value={row.name}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setStrategies((p) => p.map((s, i) => (i === idx ? { ...s, name: v } : s)));
-                      }}
-                      disabled={vigilRunning || busy}
-                      placeholder="Strategy name"
-                    />
-                    <select
-                      className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                      value={row.template_type}
-                      onChange={(e) => {
-                        const tt = e.target.value;
-                        setStrategies((p) =>
-                          p.map((s, i) =>
-                            i === idx
-                              ? { ...s, template_type: tt, params: { ...DEFAULT_PARAMS[tt] } }
-                              : s,
-                          ),
-                        );
-                      }}
-                      disabled={vigilRunning || busy}
-                    >
-                      {TEMPLATES.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={row.enabled}
-                        onCheckedChange={(v) => {
-                          setStrategies((p) => p.map((s, i) => (i === idx ? { ...s, enabled: v } : s)));
+          <div className="rounded-lg border border-border/70 bg-muted/15 p-4 space-y-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Order size</p>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <StepNum
+                label="Buy (GBP per signal)"
+                value={apBuyUsd}
+                onChange={setApBuyUsd}
+                min={1}
+                step={50}
+                disabled={vigilRunning || busy}
+              />
+              <StepNum
+                label="Sell fraction"
+                value={apSellFrac}
+                onChange={setApSellFrac}
+                min={0.01}
+                max={1}
+                step={0.05}
+                disabled={vigilRunning || busy}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Strategies</p>
+            {strategies.map((row, idx) => {
+              const keys = Object.keys(DEFAULT_PARAMS[row.template_type] || row.params || {});
+              return (
+                <div
+                  key={row.id}
+                  className={cn(
+                    "rounded-lg border border-border/80 p-4 space-y-4 bg-background/80",
+                    !row.enabled && "opacity-70",
+                  )}
+                >
+                  <div className="flex flex-wrap gap-3 items-center justify-between">
+                    <div className="flex flex-wrap items-center gap-3 min-w-0">
+                      <Input
+                        className="max-w-[200px] h-9"
+                        value={row.name}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setStrategies((p) => p.map((s, i) => (i === idx ? { ...s, name: v } : s)));
                         }}
                         disabled={vigilRunning || busy}
+                        placeholder="Strategy name"
                       />
-                      <span className="text-xs text-muted-foreground">Enabled</span>
+                      <div className="space-y-1 min-w-[200px]">
+                        <Label className="text-[10px] uppercase text-muted-foreground">Template</Label>
+                        <Select
+                          value={row.template_type}
+                          onValueChange={(tt) => {
+                            setStrategies((p) =>
+                              p.map((s, i) =>
+                                i === idx ? { ...s, template_type: tt, params: { ...DEFAULT_PARAMS[tt] } } : s,
+                              ),
+                            );
+                          }}
+                          disabled={vigilRunning || busy}
+                        >
+                          <SelectTrigger className="h-9 bg-background">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {TEMPLATES.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                {t}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                        <Switch
+                          checked={row.enabled}
+                          onCheckedChange={(v) => {
+                            setStrategies((p) => p.map((s, i) => (i === idx ? { ...s, enabled: v } : s)));
+                          }}
+                          disabled={vigilRunning || busy}
+                        />
+                        <span className="text-xs text-muted-foreground">Enabled</span>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeStrategy(row.id)}
+                      disabled={vigilRunning || busy || strategies.length <= 1}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+
+                  <div className="rounded-md border border-border/50 bg-muted/10 p-3 space-y-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Parameters</p>
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {keys.map((k) => (
+                        <StepNum
+                          key={k}
+                          label={PARAM_LABELS[k] ?? k}
+                          value={String(row.params[k] ?? DEFAULT_PARAMS[row.template_type]?.[k] ?? 0)}
+                          onChange={(v) => {
+                            const n = Number.parseFloat(v);
+                            if (Number.isFinite(n)) setStrategyParam(idx, k, n);
+                          }}
+                          step={paramStep(k)}
+                          disabled={vigilRunning || busy}
+                        />
+                      ))}
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeStrategy(row.id)}
-                    disabled={vigilRunning || busy || strategies.length <= 1}
-                  >
-                    Remove
-                  </Button>
+
+                  <Collapsible defaultOpen={false}>
+                    <CollapsibleTrigger className="group flex w-full items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted/35">
+                      <span>Advanced options</span>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out group-data-[state=open]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
+                      <div className="pt-3 space-y-2">
+                        <Label className="text-xs text-muted-foreground">Params (JSON)</Label>
+                        <Textarea
+                          className="font-mono text-xs min-h-[100px] bg-background/90"
+                          spellCheck={false}
+                          defaultValue={JSON.stringify(row.params, null, 2)}
+                          disabled={vigilRunning || busy}
+                          onBlur={(e) => {
+                            try {
+                              const p = JSON.parse(e.target.value || "{}") as Record<string, number>;
+                              setStrategies((prev) => prev.map((s, i) => (i === idx ? { ...s, params: p } : s)));
+                            } catch {
+                              /* keep editing */
+                            }
+                          }}
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                          Collapse and expand this panel after using steppers above to reload JSON from them.
+                        </p>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+
+                  {ap?.strategies?.find((s) => s.id === row.id)?.last_signal != null ? (
+                    <p className="text-xs font-mono text-muted-foreground">
+                      Last signal: {String(ap.strategies?.find((s) => s.id === row.id)?.last_signal ?? "-")}
+                    </p>
+                  ) : null}
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Params (JSON)</Label>
-                  <Textarea
-                    key={`${row.id}-${row.template_type}`}
-                    className="font-mono text-xs min-h-[72px]"
-                    spellCheck={false}
-                    defaultValue={JSON.stringify(row.params, null, 0)}
-                    disabled={vigilRunning || busy}
-                    onBlur={(e) => {
-                      try {
-                        const p = JSON.parse(e.target.value || "{}") as Record<string, number>;
-                        setStrategies((prev) => prev.map((s, i) => (i === idx ? { ...s, params: p } : s)));
-                      } catch {
-                        /* invalid JSON — leave state until user fixes */
-                      }
-                    }}
-                  />
-                </div>
-                {ap?.strategies?.find((s) => s.id === row.id)?.last_signal != null ? (
-                  <p className="text-xs font-mono text-muted-foreground">
-                    Last signal: {String(ap.strategies?.find((s) => s.id === row.id)?.last_signal ?? "—")}
-                  </p>
-                ) : null}
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -602,9 +701,7 @@ export function PaperTradingWorkspace({
               Stop Paper Vigil
             </Button>
           </div>
-          {ap?.last_error ? (
-            <p className="text-xs text-destructive font-mono">Last error: {ap.last_error}</p>
-          ) : null}
+          {ap?.last_error ? <p className="text-xs text-destructive font-mono">Last error: {ap.last_error}</p> : null}
         </section>
       </CardContent>
     </Card>

@@ -1,4 +1,4 @@
-"""BTC-USD hourly candles from Coinbase sandbox API, with synthetic fallback for demos."""
+"""BTC-GBP hourly candles from Coinbase sandbox API, with synthetic fallback for demos."""
 
 from __future__ import annotations
 
@@ -21,16 +21,20 @@ def parse_candles_payload(payload: Any) -> List[Dict[str, Any]]:
 
 def fetch_coinbase_candles_btc_usd(
     *,
-    product_id: str = "BTC-USD",
+    product_id: str = "BTC-GBP",
     lookback_hours: int = 168,
     granularity: str = "ONE_HOUR",
     limit: int = 350,
     sandbox_base_url: str = "https://api-sandbox.coinbase.com",
+    use_public_market_candles: bool = False,
 ) -> List[Dict[str, Any]]:
     end = int(time.time())
     start = end - int(lookback_hours * 3600)
 
-    url = f"{sandbox_base_url}/api/v3/brokerage/products/{product_id}/candles"
+    if use_public_market_candles:
+        url = f"{sandbox_base_url}/api/v3/brokerage/market/products/{product_id}/candles"
+    else:
+        url = f"{sandbox_base_url}/api/v3/brokerage/products/{product_id}/candles"
     params = {
         "start": str(start),
         "end": str(end),
@@ -78,10 +82,16 @@ def generate_synthetic_candles_btc_usd(
     Deterministic fallback candles so the demo can run even when Coinbase is unreachable.
     """
     candle_seconds = 3600
-    if granularity == "ONE_HOUR":
-        candle_seconds = 3600
+    if granularity == "ONE_MINUTE":
+        candle_seconds = 60
     elif granularity == "FIVE_MINUTE":
         candle_seconds = 300
+    elif granularity == "FIFTEEN_MINUTE":
+        candle_seconds = 900
+    elif granularity == "ONE_HOUR":
+        candle_seconds = 3600
+    elif granularity == "SIX_HOUR":
+        candle_seconds = 21600
     elif granularity == "ONE_DAY":
         candle_seconds = 86400
 

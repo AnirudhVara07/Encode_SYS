@@ -5,10 +5,11 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
+from .deps import get_current_session
 from ..agent import civic_oauth, ledger as agent_ledger
 from ..agent.secrets_redact import redact_secrets_for_client
 from ..agent import llm_report
@@ -19,11 +20,20 @@ from ..agent import ws_bus
 from ..agent import rules as agent_rules
 from ..agent.live_wallet import UPGRADE_MESSAGE
 from ..agent.strategy_profile import build_profile_from_trades
+from ..agent.universal_strategy import (
+    build_strategy_profile_from_universal,
+    bytes_to_llm_text,
+    detection_to_dict,
+    normalize_strategy_json,
+)
+from ..agent.apply_uploaded_strategy_autopilots import apply_suggested_strategies_to_autopilots
+from ..agent.universal_to_live_template import suggest_live_autopilot_strategies
+from ..agent import universal_strategy_llm
 from ..paper import autopilot as paper_autopilot
 from ..paper import portfolio as paper_portfolio
+from ..trading_guard import verify_live_trading_captcha
 
 router = APIRouter(tags=["agent"])
-security = HTTPBearer(auto_error=False)
 
 
 class AuthCodeBody(BaseModel):
@@ -40,7 +50,11 @@ class StartBody(BaseModel):
     starting_usd: float = Field(default=10_000.0, gt=0)
     execution_mode: Optional[str] = Field(
         default=None,
-        description="paper (simulated USDC) or live (on-chain via AgentKit — Pro only)",
+        description="paper (simulated GBP) or live (on-chain via AgentKit — Pro only)",
+    )
+    captcha_token: Optional[str] = Field(
+        default=None,
+        description="Turnstile token when starting in live mode and TURNSTILE_SECRET_KEY is set",
     )
 
 
@@ -63,20 +77,14 @@ class StrategyBody(BaseModel):
         return self
 
 
-async def get_current_session(creds: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
-    if creds is None or not creds.credentials:
-        raise HTTPException(status_code=401, detail="Missing Authorization bearer token")
-    try:
-        payload = session_jwt.decode_token(creds.credentials)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired session token") from None
-    sid = str(payload.get("sid") or "")
-    if not sid:
-        raise HTTPException(status_code=401, detail="Invalid session")
-    sess = agent_state.get_server_session(sid)
-    if not sess:
-        raise HTTPException(status_code=401, detail="Session not found or expired")
-    return {"sub": str(payload.get("sub") or ""), "sid": sid, "jwt": creds.credentials, "civic": sess}
+class UniversalStrategyConfirmBody(BaseModel):
+    parse_id: str = Field(..., min_length=8, max_length=128)
+    user_corrections: Optional[str] = Field(default=None, max_length=4000)
+    strategy_json_override: Optional[Dict[str, Any]] = None
+    preview_only: bool = False
+
+
+_MAX_STRATEGY_UPLOAD_BYTES = 15 * 1024 * 1024
 
 
 @router.get("/civic-oauth-config")
@@ -171,7 +179,11 @@ def patch_profile(body: ProfilePatchBody, session: Dict[str, Any] = Depends(get_
 
 
 @router.post("/start")
-def post_start(body: StartBody = StartBody(), session: Dict[str, Any] = Depends(get_current_session)):
+def post_start(
+    request: Request,
+    body: StartBody = StartBody(),
+    session: Dict[str, Any] = Depends(get_current_session),
+):
     sid = str(session.get("sid") or "")
     mode = (body.execution_mode or agent_state.get_execution_mode() or "paper").strip().lower()
     if mode not in ("paper", "live"):
@@ -181,6 +193,11 @@ def post_start(body: StartBody = StartBody(), session: Dict[str, Any] = Depends(
             status_code=403,
             detail={"code": "upgrade_required", "message": UPGRADE_MESSAGE},
         )
+    if mode == "live":
+        try:
+            verify_live_trading_captcha(body.captcha_token, request.client.host if request.client else None)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
     try:
         agent_state.set_execution_mode(mode)
     except ValueError as e:
@@ -277,6 +294,7 @@ def get_report(session: Dict[str, Any] = Depends(get_current_session)):
                 "summary": "Upload a strategy profile via POST /strategy to enable LLM comparison.",
                 "improvements": ["", "", ""],
                 "error": "no_strategy_profile",
+                "safety": {"level": "ok", "source": "none"},
             }
     return {
         "performance": stats,
@@ -285,6 +303,141 @@ def get_report(session: Dict[str, Any] = Depends(get_current_session)):
         "strategy_profile": profile if profile else None,
         "llm": llm,
         "autonomous_mode": agent_state.get_autonomous(),
+    }
+
+
+@router.post("/strategy/parse")
+async def post_strategy_parse(
+    strategy_file: UploadFile = File(...),
+    session: Dict[str, Any] = Depends(get_current_session),
+):
+    """
+    Upload any supported strategy file; server detects format and asks the LLM for a normalized strategy JSON.
+    Use POST /strategy/parse/confirm to save after the user reviews user_summary.
+    """
+    fn = (strategy_file.filename or "strategy.txt").strip() or "strategy.txt"
+    data = await strategy_file.read()
+    if len(data) > _MAX_STRATEGY_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="File too large (max 15MB)")
+
+    text, detection, conv_err = bytes_to_llm_text(filename=fn, data=data)
+    if conv_err:
+        raise HTTPException(status_code=400, detail=conv_err)
+
+    strat, llm_err, _, safety = universal_strategy_llm.extract_strategy_via_llm(
+        filename=fn,
+        text=text,
+        detection=detection,
+    )
+    if llm_err or strat is None:
+        blocked = isinstance(safety, dict) and safety.get("level") == "blocked"
+        status = 400 if blocked else 503
+        return JSONResponse(
+            status_code=status,
+            content={"detail": llm_err or "LLM extraction failed", "safety": safety},
+        )
+
+    parse_id = str(uuid.uuid4())
+    sid = str(session.get("sid") or "")
+    agent_state.store_pending_universal_parse(
+        parse_id,
+        session_id=sid,
+        strategy_json=strat,
+        detection=detection_to_dict(detection),
+        filename=fn,
+    )
+
+    return {
+        "parse_id": parse_id,
+        "filename": fn,
+        "detection": detection_to_dict(detection),
+        "user_summary": strat.get("user_summary") or strat.get("raw_summary") or "",
+        "strategy_json": strat,
+        "safety": safety,
+    }
+
+
+@router.post("/strategy/parse/confirm")
+def post_strategy_parse_confirm(
+    body: UniversalStrategyConfirmBody,
+    session: Dict[str, Any] = Depends(get_current_session),
+):
+    pending = agent_state.get_pending_universal_parse(body.parse_id)
+    if not pending:
+        raise HTTPException(status_code=404, detail="Parse session expired or unknown parse_id")
+    if str(pending.get("sid") or "") != str(session.get("sid") or ""):
+        raise HTTPException(status_code=403, detail="parse_id belongs to another session")
+
+    working: Dict[str, Any] = dict(body.strategy_json_override or pending["strategy_json"])
+    last_safety: Dict[str, Any] = {"level": "ok", "source": "none"}
+
+    if body.user_corrections and body.user_corrections.strip():
+        refined, err, refine_safety = universal_strategy_llm.refine_strategy_via_llm(
+            current=working,
+            user_corrections=body.user_corrections.strip(),
+        )
+        if err or refined is None:
+            blocked = isinstance(refine_safety, dict) and refine_safety.get("level") == "blocked"
+            status = 400 if blocked else 503
+            return JSONResponse(
+                status_code=status,
+                content={"detail": err or "Refinement failed", "safety": refine_safety},
+            )
+        working = refined
+        last_safety = refine_safety
+        agent_state.update_pending_universal_parse(body.parse_id, working)
+
+    if body.preview_only:
+        return {
+            "ok": True,
+            "preview_only": True,
+            "user_summary": working.get("user_summary") or working.get("raw_summary") or "",
+            "strategy_json": working,
+            "safety": last_safety,
+        }
+
+    prof = build_strategy_profile_from_universal(working)
+    agent_state.set_strategy_profile(prof)
+    agent_state.pop_pending_universal_parse(body.parse_id)
+    norm = normalize_strategy_json(working, fallback_platform=str(working.get("source_platform") or "unknown"))
+    live_strats, live_note = suggest_live_autopilot_strategies(universal=norm)
+    apply_out = apply_suggested_strategies_to_autopilots(
+        civic_sub=str(session.get("sub") or ""),
+        suggested=live_strats,
+    )
+    return {
+        "ok": True,
+        "saved": True,
+        "profile": agent_state.get_strategy_profile(),
+        "user_summary": working.get("user_summary") or working.get("raw_summary") or "",
+        "strategy_json": working,
+        "safety": last_safety,
+        "live_autopilot_suggestion": {"strategies": live_strats, "note": live_note},
+        "autopilot_apply": apply_out,
+    }
+
+
+@router.get("/strategy/live-autopilot-suggestion")
+def get_live_autopilot_suggestion(_sess: Dict[str, Any] = Depends(get_current_session)):
+    """Map saved universal strategy profile to executable Vigil template rows (paper + live use the same profile)."""
+    prof = agent_state.get_strategy_profile() or {}
+    us = prof.get("universal_strategy")
+    if not isinstance(us, dict):
+        return {
+            "strategies": [],
+            "note": "No strategy import yet. Upload a file and save to Vigil.",
+            "user_summary": "",
+            "raw_summary": "",
+            "universal_strategy": None,
+        }
+    norm = normalize_strategy_json(us, fallback_platform=str(us.get("source_platform") or "unknown"))
+    strats, note = suggest_live_autopilot_strategies(universal=norm)
+    return {
+        "strategies": strats,
+        "note": note,
+        "user_summary": str(norm.get("user_summary") or "").strip(),
+        "raw_summary": str(norm.get("raw_summary") or "").strip(),
+        "universal_strategy": norm,
     }
 
 
@@ -302,6 +455,21 @@ def post_strategy(body: StrategyBody, session: Dict[str, Any] = Depends(get_curr
         raise HTTPException(status_code=400, detail=redact_secrets_for_client(str(e))) from e
     agent_state.set_strategy_profile(prof)
     return {"ok": True, "profile": prof}
+
+
+@router.get("/strategy/export")
+def get_strategy_export(session: Dict[str, Any] = Depends(get_current_session)):
+    """Downloadable snapshot: imported profile + current paper autopilot template config."""
+    prof = agent_state.get_strategy_profile()
+    return {
+        "export_kind": "vigil_use_vigil",
+        "exported_at_unix": time.time(),
+        "session_sub": session.get("sub"),
+        "execution_mode": agent_state.get_execution_mode(),
+        "strategy_profile": prof,
+        "paper_autopilot": paper_autopilot.get_config_snapshot(),
+        "agent_flags": agent_state.get_flags(),
+    }
 
 
 @router.get("/news")

@@ -22,7 +22,7 @@
     --secondary-foreground: 225 15% 30%;
 
     --muted: 220 10% 94%;
-    --muted-foreground: 220 10% 40%;
+    --muted-foreground: 225 12% 34%;
 
     --accent: 152 60% 40%;
     --accent-foreground: 0 0% 100%;
@@ -41,6 +41,8 @@
     --vigil-red: 0 72% 58%;
     --vigil-surface: 0 0% 96%;
     --vigil-surface-elevated: 0 0% 100%;
+    /* Sell / caution signals — paired with --vigil-green for buys */
+    --vigil-amber: 32 90% 38%;
   }
 
   .dark {
@@ -79,6 +81,7 @@
     --vigil-red: 0 72% 58%;
     --vigil-surface: 225 20% 8%;
     --vigil-surface-elevated: 225 18% 12%;
+    --vigil-amber: 38 88% 58%;
   }
 }
 

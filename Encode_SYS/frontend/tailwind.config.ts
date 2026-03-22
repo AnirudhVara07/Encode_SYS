@@ -51,6 +51,7 @@ export default {
           glow: "hsl(var(--vigil-glow))",
           green: "hsl(var(--vigil-green))",
           red: "hsl(var(--vigil-red))",
+          amber: "hsl(var(--vigil-amber))",
           surface: "hsl(var(--vigil-surface))",
           "surface-elevated": "hsl(var(--vigil-surface-elevated))",
         },
@@ -71,6 +72,14 @@ export default {
         },
         "accordion-up": {
           from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
+        },
+        "collapsible-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-collapsible-content-height)" },
+        },
+        "collapsible-up": {
+          from: { height: "var(--radix-collapsible-content-height)" },
           to: { height: "0" },
         },
         breathe: {
@@ -114,6 +123,8 @@ export default {
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "collapsible-down": "collapsible-down 0.25s ease-out",
+        "collapsible-up": "collapsible-up 0.25s ease-out",
         breathe: "breathe 4s ease-in-out infinite",
         "pulse-ring": "pulse-ring 2.5s ease-out infinite",
         float: "float 6s ease-in-out infinite",

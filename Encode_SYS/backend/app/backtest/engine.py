@@ -33,7 +33,7 @@ class BacktestResult:
     win_rate: float
     max_drawdown_usd: float
     trades: List[Trade]
-    # Optional time series: candle unix time -> mark-to-market equity (USD) at bar close.
+    # Optional time series: candle unix time -> mark-to-market equity (GBP) at bar close.
     equity_curve: Optional[List[Dict[str, Any]]] = None
 
 

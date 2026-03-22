@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MessageCircle, Send, X } from "lucide-react";
+import { useLocation } from "react-router-dom";
+import { MessageCircle, Send, Shield, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { VigilAccessGate } from "@/components/VigilAccessGate";
 import { useVigilUser } from "@/context/VigilUserContext";
 import { cn, stripMarkdownBoldForChat } from "@/lib/utils";
 
@@ -10,21 +12,26 @@ type ChatRole = "user" | "assistant";
 
 type ChatTurn = { role: ChatRole; content: string };
 
+type ChatSafety = { level: string; source: string };
+
 const SAMPLE_QUESTIONS = [
   "How does majority voting work across my Paper Vigil strategies?",
   "Given my current autopilot settings, what tweaks are worth testing next?",
-  "How is overnight Pine optimization on /demo different from Paper Vigil?",
+  "How is the historical backtest on /demo different from Paper Trading / Paper Vigil?",
   "What might my strategy profile suggest about trade frequency or sizing?",
   "What do the agent rules summary fields mean for when trades are blocked?",
 ];
 
 export function StrategyChatWidget() {
+  const location = useLocation();
   const { bearer } = useVigilUser();
+  const loggedIn = Boolean(bearer.trim());
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [lastSafety, setLastSafety] = useState<ChatSafety | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<ChatTurn[]>([]);
 
@@ -42,7 +49,7 @@ export function StrategyChatWidget() {
   const sendWithText = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || loading) return;
+      if (!trimmed || loading || !loggedIn) return;
       const nextMessages: ChatTurn[] = [...messagesRef.current, { role: "user", content: trimmed }];
       messagesRef.current = nextMessages;
       setMessages(nextMessages);
@@ -58,7 +65,15 @@ export function StrategyChatWidget() {
           headers,
           body: JSON.stringify({ messages: nextMessages }),
         });
-        const d = (await r.json()) as { reply?: string; error?: string; personalized?: boolean };
+        const d = (await r.json()) as {
+          reply?: string;
+          error?: string;
+          personalized?: boolean;
+          safety?: ChatSafety;
+        };
+        if (d.safety && typeof d.safety.level === "string" && typeof d.safety.source === "string") {
+          setLastSafety(d.safety);
+        }
         if (!r.ok) {
           setBanner(typeof d.error === "string" ? d.error : `Request failed (${r.status})`);
           return;
@@ -69,7 +84,7 @@ export function StrategyChatWidget() {
         }
         const assistantTurn: ChatTurn = {
           role: "assistant",
-          content: stripMarkdownBoldForChat(d.reply || "—"),
+          content: stripMarkdownBoldForChat(d.reply || "-"),
         };
         setMessages((prev) => {
           const out = [...prev, assistantTurn];
@@ -82,7 +97,7 @@ export function StrategyChatWidget() {
         setLoading(false);
       }
     },
-    [bearer, loading],
+    [bearer, loading, loggedIn],
   );
 
   const onSubmit = () => void sendWithText(draft);
@@ -108,7 +123,23 @@ export function StrategyChatWidget() {
       <Card className="flex h-[min(70vh,560px)] max-h-[calc(100vh-5rem)] flex-col overflow-hidden rounded-xl border shadow-xl border-primary/20">
         <CardHeader className="shrink-0 border-b bg-card/95 py-3 px-4 backdrop-blur-sm">
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base font-semibold">Chat to Vigil</CardTitle>
+            <div className="min-w-0 space-y-1">
+              <CardTitle className="text-base font-semibold">Chat to Vigil</CardTitle>
+              {loggedIn ? (
+                <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground leading-tight">
+                  <Shield className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+                  <span>
+                    {lastSafety == null
+                      ? "Civic sign-in · screening runs on each message you send"
+                      : lastSafety.source === "civic_bodyguard"
+                        ? "Civic sign-in · Civic screening active on this chat"
+                        : lastSafety.source === "local"
+                          ? "Civic sign-in · automated screening on this chat"
+                          : "Civic sign-in · assistant replies may be filtered for safety"}
+                  </span>
+                </p>
+              ) : null}
+            </div>
             <Button
               type="button"
               variant="ghost"
@@ -122,11 +153,22 @@ export function StrategyChatWidget() {
           </div>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
-          {banner ? (
+          {!loggedIn ? (
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+              <VigilAccessGate
+                variant="panel"
+                title="Log in to chat"
+                description="Chat to Vigil uses your Civic session for personalized context. Log in or sign up to continue."
+                returnTo={`${location.pathname}${location.search}`}
+              />
+            </div>
+          ) : null}
+          {loggedIn && banner ? (
             <div className="shrink-0 border-b border-destructive/20 bg-destructive/5 px-3 py-2">
               <p className="text-xs text-destructive font-mono leading-snug">{banner}</p>
             </div>
           ) : null}
+          {loggedIn ? (
           <div
             ref={scrollRef}
             className="strategy-chat-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3"
@@ -173,6 +215,8 @@ export function StrategyChatWidget() {
               ) : null}
             </div>
           </div>
+          ) : null}
+          {loggedIn ? (
           <div className="shrink-0 space-y-2 border-t bg-card/95 px-3 pb-3 pt-2 backdrop-blur-sm">
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Suggested prompts</p>
             <div className="-mx-0.5 flex gap-1.5 overflow-x-auto overflow-y-hidden pb-1 [scrollbar-width:thin]">
@@ -217,6 +261,7 @@ export function StrategyChatWidget() {
               </Button>
             </div>
           </div>
+          ) : null}
         </CardContent>
       </Card>
     </div>

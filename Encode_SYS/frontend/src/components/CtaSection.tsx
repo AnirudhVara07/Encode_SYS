@@ -25,7 +25,7 @@ const CtaSection = () => {
             <button
               onClick={() => {
                 // TODO: Implement login/signup flow
-                console.log("Login clicked — implement auth here");
+                console.log("Login clicked, implement auth here");
               }}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-10 py-3.5 text-base font-medium text-primary-foreground transition-all hover:brightness-110 active:scale-[0.97] box-glow"
             >

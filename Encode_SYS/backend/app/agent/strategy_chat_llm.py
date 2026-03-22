@@ -4,7 +4,8 @@ import json
 import re
 from typing import Any, Dict, List
 
-from .llm_http import llm_chat_completion, llm_key_error_message, require_llm_config
+from .llm_http import guarded_llm_chat_completion, llm_key_error_message, require_llm_config
+from .llm_safety import SafetyProfile
 from .secrets_redact import redact_secrets_for_client
 
 _MAX_CONTEXT_JSON = 8000
@@ -30,7 +31,7 @@ def run_strategy_chat(*, messages: List[Dict[str, str]], context: Dict[str, Any]
     """
     cfg = require_llm_config()
     if not cfg:
-        return {"reply": "", "error": llm_key_error_message()}
+        return {"reply": "", "error": llm_key_error_message(), "safety": {"level": "ok", "source": "none"}}
     api_key, model = cfg
 
     ctx_blob = json.dumps(context, indent=2, default=str)
@@ -46,11 +47,10 @@ def run_strategy_chat(*, messages: List[Dict[str, str]], context: Dict[str, Any]
         "no bold, no italics, no headings, no bullet or numbered markdown syntax. Use short paragraphs and line breaks.\n\n"
         "Strategy access: CONTEXT_JSON includes personalized_data_loaded, has_strategy_profile, and strategy_profile. "
         "When personalized_data_loaded is false, you do not have their session or stored strategy — for anything that "
-        "depends on their specific strategy, tell them to open the Vigil dashboard, paste a valid bearer token so the "
-        "assistant can load their session, then sync or submit their strategy profile in Vigil before asking personalized "
-        "questions. When personalized_data_loaded is true but has_strategy_profile is false (or strategy_profile is null), "
-        "say the same: they need to add or sync their strategy in Vigil on the dashboard first; you can still explain "
-        "general product concepts. Never invent their parameters or pretend you see a profile you do not have.\n\n"
+        "depends on their specific strategy, tell them to open Vigil, paste a valid bearer token, then import or sync "
+        "their strategy profile (dashboard or Real trading). When personalized_data_loaded is true but has_strategy_profile "
+        "is false (or strategy_profile is null), say they need to add a profile first; you can still explain general "
+        "product concepts. Never invent their parameters or pretend you see a profile you do not have.\n\n"
         "Use CONTEXT_JSON fields when available; otherwise rely on general knowledge of how such products typically work.\n\n"
         f"CONTEXT_JSON:\n{ctx_blob}"
     )
@@ -67,20 +67,25 @@ def run_strategy_chat(*, messages: List[Dict[str, str]], context: Dict[str, Any]
         openai_messages.append({"role": role, "content": content[:4000]})
 
     if len(openai_messages) < 2:
-        return {"reply": "", "error": "No valid user/assistant messages to send"}
+        return {
+            "reply": "",
+            "error": "No valid user/assistant messages to send",
+            "safety": {"level": "ok", "source": "none"},
+        }
 
     try:
-        text, err = llm_chat_completion(
+        text, err, safety = guarded_llm_chat_completion(
             api_key=api_key,
             model=model,
             messages=openai_messages,
             temperature=0.45,
             max_output_tokens=_MAX_REPLY_TOKENS,
             timeout=90,
+            safety_profile=SafetyProfile.CHAT,
         )
         if err:
-            return {"reply": "", "error": err}
+            return {"reply": "", "error": err, "safety": safety}
         assert text is not None
-        return {"reply": _plain_strategy_reply(text.strip()), "error": None}
+        return {"reply": _plain_strategy_reply(text.strip()), "error": None, "safety": safety}
     except Exception as e:
-        return {"reply": "", "error": redact_secrets_for_client(str(e))}
+        return {"reply": "", "error": redact_secrets_for_client(str(e)), "safety": {"level": "ok", "source": "none"}}

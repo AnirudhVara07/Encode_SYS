@@ -147,7 +147,7 @@ def _run_learning_background(
             )
             if side:
                 order_resp = create_market_ioc_order_sandbox(
-                    product_id="BTC-USD",
+                    product_id="BTC-GBP",
                     side=side,
                     base_size_btc=btc_size,
                     client_order_id=f"{run_id}-{int(time.time())}",
@@ -294,8 +294,6 @@ async def download_pine(run_id: str):
 
 _MARKETAUX_MAX_LIMIT = 20
 _MARKETAUX_URL = "https://api.marketaux.com/v1/news/all"
-# Bias feed toward tradeable / macro-linked entities (see MarketAux entity type list).
-_MARKETAUX_DEFAULT_ENTITY_TYPES = "equity,index,etf,mutualfund,cryptocurrency,currency"
 
 
 def _marketaux_error_message(payload: Any) -> Optional[str]:
@@ -410,13 +408,7 @@ def get_marketaux_news(
         "api_token": token,
         "language": "en",
         "limit": limit,
-        # Financial assets & macro: only articles where MarketAux identified at least one entity.
-        "must_have_entities": "true",
-        "filter_entities": "true",
     }
-    et = os.getenv("MARKETAUX_ENTITY_TYPES", _MARKETAUX_DEFAULT_ENTITY_TYPES).strip()
-    if et:
-        params["entity_types"] = et
     if symbols and symbols.strip():
         params["symbols"] = symbols.strip()
     try:
@@ -471,6 +463,7 @@ def get_marketaux_news(
             "macro_todos": [],
             "asset_todos": [],
             "error": None,
+            "safety": {"level": "ok", "source": "none"},
         }
     _si_out = payload.get("strategy_insights")
     _debug_marketaux_ndjson(
@@ -525,8 +518,8 @@ def _strategy_chat_context(*, personalized: bool) -> Dict[str, Any]:
     if not has_strategy_profile:
         ctx["note"] = (
             "Session is recognized but no strategy profile is stored on the server yet. "
-            "Tell the user to add their strategy in Vigil first (Vigil dashboard: submit or sync a strategy profile "
-            "from trades or the strategy flow) before expecting answers tied to their specific strategy parameters."
+            "Tell the user to import or sync their strategy in Vigil (dashboard or Real trading file import) "
+            "before expecting answers tied to their specific strategy parameters."
         )
     return ctx
 
@@ -548,10 +541,17 @@ def post_strategy_chat(
     ctx = _strategy_chat_context(personalized=personalized)
     payload = [m.model_dump() for m in body.messages]
     out = run_strategy_chat(messages=payload, context=ctx)
+    safety = out.get("safety")
+    content: Dict[str, Any] = {
+        "reply": out.get("reply") or "",
+        "error": out.get("error"),
+        "personalized": personalized,
+    }
+    if safety is not None:
+        content["safety"] = safety
     if out.get("error"):
-        return JSONResponse(
-            status_code=503,
-            content={"reply": out.get("reply") or "", "error": out["error"], "personalized": personalized},
-        )
-    return {"reply": out.get("reply") or "", "error": None, "personalized": personalized}
+        blocked = isinstance(safety, dict) and safety.get("level") == "blocked"
+        status = 200 if blocked else 503
+        return JSONResponse(status_code=status, content=content)
+    return content
 

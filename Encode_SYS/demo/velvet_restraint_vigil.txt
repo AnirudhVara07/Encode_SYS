@@ -1,0 +1,28 @@
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  VELVET RESTRAINT · Vigil demo strategy                                  ║
+// ║                                                                          ║
+// ║  Same template family as “Neon Undertow” but calmer defaults: longer     ║
+// ║  RSI period, wider RSI bands, and a slower EMA for trend context.        ║
+// ║  Upload in **Universal strategy import** or paste into overnight demo.   ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+//
+//  Idea: only buy dips when price has not collapsed through the EMA “floor”
+//  by too much; scale out / stand aside when RSI stretches toward rsi_upper.
+//
+// @vigil:template RSICrossTrendFilter
+
+// Optional optimizer grid (comment out to use Vigil’s built-in demo ranges)
+// @vigil:range rsi_len 10 21 1
+// @vigil:range rsi_lower 22 40 1
+// @vigil:range rsi_upper 58 78 1
+// @vigil:range ema_len 50 120 5
+
+rsi_len   = input.int(14, "Velvet · RSI length")
+rsi_lower = input.int(32, "Velvet · RSI oversold line")
+rsi_upper = input.int(68, "Velvet · RSI overbought line")
+ema_len   = input.int(100, "Velvet · trend EMA length")
+
+// --- Illustrative only: Vigil’s Python demo does not execute this Pine on-chart. ---
+// Long when RSI crosses up through rsi_lower from below, with close not far under EMA.
+// Reduce / exit when RSI crosses down through rsi_upper from above.
+// Tune the four inputs above; overnight learning will sweep the @vigil:range grid.

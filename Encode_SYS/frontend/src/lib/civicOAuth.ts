@@ -1,7 +1,19 @@
 /** Session keys for Civic OAuth + PKCE (authorization code flow). */
 export const CIVIC_STATE_KEY = "vigil_civic_oauth_state";
 export const CIVIC_VERIFIER_KEY = "vigil_civic_pkce_verifier";
+export const CIVIC_RETURN_TO_KEY = "vigil_civic_return_to";
 export const CIVIC_REDIRECT_PATH = "/callback";
+
+/** Internal path only, avoids open redirects after OAuth. */
+export function sanitizeCivicReturnTo(raw: string | null | undefined): string | null {
+  if (raw == null || typeof raw !== "string") return null;
+  let t = raw.trim();
+  if (!t.startsWith("/") || t.startsWith("//")) return null;
+  if (t.includes("..")) return null;
+  t = t.split("#")[0]?.split("?")[0] ?? "";
+  if (!t || t.length > 256) return null;
+  return t;
+}
 
 function bytesToBase64Url(bytes: ArrayBuffer): string {
   const bin = String.fromCharCode(...new Uint8Array(bytes));
@@ -39,7 +51,11 @@ export async function fetchCivicOauthConfig(): Promise<CivicOauthConfig> {
  * Redirect browser to Civic authorize URL (PKCE S256). Call from a click handler.
  * Register redirect URI in Civic: `${window.location.origin}/callback` for each origin you use (8080 vs 8000, localhost vs 127.0.0.1).
  */
-export async function startCivicLogin(): Promise<void> {
+export async function startCivicLogin(options?: { returnTo?: string }): Promise<void> {
+  const safe = sanitizeCivicReturnTo(options?.returnTo ?? null);
+  if (safe) sessionStorage.setItem(CIVIC_RETURN_TO_KEY, safe);
+  else sessionStorage.removeItem(CIVIC_RETURN_TO_KEY);
+
   const cfg = await fetchCivicOauthConfig();
   const redirectUri = `${window.location.origin}${CIVIC_REDIRECT_PATH}`;
   const state = randomVerifier();

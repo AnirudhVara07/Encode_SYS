@@ -3,11 +3,11 @@
 This repo contains a demo “learning loop” for PineScript strategies:
 
 1. You upload a Vigil-compatible PineScript file (it must include template markers + required `input()` parameters).
-2. The backend fetches BTC-USD candles, runs an internal backtest for a limited set of template evaluators, and grid-searches parameters to maximize `net_profit` under your risk boundaries.
+2. The backend fetches BTC-GBP candles, runs an internal backtest for a limited set of template evaluators, and grid-searches parameters to maximize `net_profit` under your risk boundaries.
 3. It rewrites your PineScript by updating the default values inside those `input()` calls for the learned best configuration.
 4. It returns an overnight performance report and a downloadable updated PineScript file.
 5. If you provide a Coinbase sandbox JWT, it will also place a single next-step market IOC order based on the latest signal (otherwise it safely skips real order submission).
-6. **Paper live simulation** (second card in the UI): reset a fake USD balance, then buy/sell BTC at **live** prices from Coinbase’s public `v2/prices/BTC-USD/spot` API. State is **in-memory** on the server (lost on restart); it does **not** place real or sandbox orders.
+6. **Paper live simulation** (second card in the UI): reset a fake GBP balance, then buy/sell BTC at **live** prices from Coinbase’s public `v2/prices/BTC-GBP/spot` API. State is **in-memory** on the server (lost on restart); it does **not** place real or sandbox orders.
 
 ## Run the demo
 
@@ -60,6 +60,14 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Open `http://127.0.0.1:8000/` (marketing site). **Live overnight-learning demo:** `http://127.0.0.1:8000/demo` — below live spot prices, an **AI news summary** pulls the same filtered MarketAux feed (`insights=1`) with macro and asset **checklists** (LLM via **OpenRouter**; requires API keys for MarketAux + `OPENROUTER_API_KEY` in `backend/.env`, optional `OPENROUTER_MODEL`). **Paper / live / backtest dashboard:** `http://127.0.0.1:8000/dashboard` — simulated **10,000 USDC** paper portfolio, **7-day backtest** replay, **Free vs Pro** (`PATCH /profile` with `is_pro`), live autonomous gated behind Pro (`POST /start` with `execution_mode: live` returns `403` + `upgrade_required` for free). Live fills use an **AgentKit stub** (`agent/live_wallet.py`) until a real wallet is wired. Logs when using the script: `Encode_SYS/.logs/uvicorn.log`.
+
+**Real Coinbase spot trading:** `http://127.0.0.1:8000/real-trading` (after Civic sign-in).
+
+- **Per-user keys:** each user pastes a **CDP Advanced Trade** API key (**view** + **trade**). The private key is encrypted with `COINBASE_CREDENTIALS_FERNET_KEY` and stored in `backend/data/coinbase_live.db` (`COINBASE_LIVE_DB_PATH`). JWTs per request via `cdp-sdk`.
+- **Organization mode:** set `COINBASE_ORG_TRADING=true` plus `COINBASE_ORG_API_KEY_ID`, `COINBASE_ORG_API_KEY_SECRET`, and optional `COINBASE_ORG_PRODUCT_ID`. All signed-in users share that Coinbase account; the UI does not ask for keys. **Only one Live Vigil** may run at a time across users (another start returns **409**).
+- **Optional on-chain receipt:** after each successful live fill (manual trade or Live Vigil), the backend can emit a `FillAttested` event via `contracts/VigilFillAttestor.sol` when `VIGIL_FILL_ATTEST_RPC_URL`, `VIGIL_FILL_ATTEST_PRIVATE_KEY`, and `VIGIL_FILL_ATTEST_CONTRACT` are set in `backend/.env` (see `.env.example`). Settlement stays on Coinbase; the tx is an explorer-visible audit log only.
+
+Separate from **paper** trading and from the optional **sandbox** IOC demo (`COINBASE_BEARER_JWT`). Treat API keys like passwords.
 
 In Cursor/VS Code: run task **“Vigil: ensure backend”** (`.vscode/tasks.json`).
 
@@ -185,7 +193,7 @@ Format:
 - `POST /api/paper/autopilot/start` — begin background loop (requires started paper session and ≥1 enabled strategy)
 - `POST /api/paper/autopilot/stop` — stop the loop
 
-Spot prices: `https://api.coinbase.com/v2/prices/BTC-USD/spot` (no API key).
+Spot prices: `https://api.coinbase.com/v2/prices/BTC-GBP/spot` (no API key).
 
 ### Trading agent (root paths, Bearer auth)
 

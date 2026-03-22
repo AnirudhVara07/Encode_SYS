@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { formatDateGb, formatDateTimeGb } from "@/lib/dateFormat";
+import { fmtGbp, fmtGbpAxis0, fmtGbpFixed } from "@/lib/formatGbp";
 import type { VigilReport } from "@/types/report";
 import {
   CartesianGrid,
@@ -22,13 +24,6 @@ type PollResponse =
   | { status: "running" }
   | { status: "completed"; report: VigilReport }
   | { status: "failed"; error?: { message?: string } };
-
-function fmtUsd(n: number | null | undefined) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
-  const v = Number(n);
-  const sign = v < 0 ? "−" : "";
-  return `${sign}$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 function postForm(endpoint: string, formData: FormData) {
   return fetch(endpoint, { method: "POST", body: formData }).then(async (res) => {
@@ -64,6 +59,7 @@ const OvernightLearningSection = ({ onReport }: Props) => {
   const [runId, setRunId] = useState<string | null>(null);
   const [localReport, setLocalReport] = useState<VigilReport | null>(null);
   const [hasFile, setHasFile] = useState(false);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
 
   const run = async () => {
     const input = fileRef.current;
@@ -122,6 +118,14 @@ const OvernightLearningSection = ({ onReport }: Props) => {
     }
   };
 
+  const clearPineFile = () => {
+    const el = fileRef.current;
+    if (el) el.value = "";
+    setHasFile(false);
+    setSelectedFileName(null);
+    setError(null);
+  };
+
   const equityData =
     localReport?.equity_curve_best?.map((p) => ({
       t: p.t * 1000,
@@ -152,10 +156,10 @@ const OvernightLearningSection = ({ onReport }: Props) => {
         <div
           className={`text-center mb-12 transition-all duration-700 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"}`}
         >
-          <span className="font-mono text-xs tracking-[0.3em] uppercase text-primary">Use Vigil</span>
+          <span className="font-mono text-xs tracking-[0.3em] uppercase text-primary">Overnight</span>
           <h2 className="mt-4 text-4xl sm:text-5xl font-bold tracking-tight">Overnight learning</h2>
           <p className="mt-4 text-muted-foreground max-w-2xl mx-auto">
-            Upload a Vigil-tagged Pine file. The backend optimizes parameters on BTC-USD candles, rewrites your
+            Upload a Vigil-tagged Pine file. The backend optimizes parameters on BTC-GBP candles, rewrites your
             script, and returns an overnight-style report.
           </p>
         </div>
@@ -167,24 +171,70 @@ const OvernightLearningSection = ({ onReport }: Props) => {
           <CardHeader>
             <CardTitle className="text-xl">Run the pipeline</CardTitle>
             <CardDescription>
-              Expect a line like <code className="text-xs">// @vigil:template RSIThresholdReversion</code> in your
-              file.
+              Server-side optimizer on BTC-GBP candles, you get a rewritten Pine file and an overnight-style report.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="pine-upload">Pine script (.txt / .pinescript)</Label>
-              <Input
-                id="pine-upload"
+            <div className="rounded-xl border border-border/80 bg-muted/15 p-4 sm:p-5 space-y-3">
+              <div className="space-y-1">
+                <Label className="text-sm font-medium">Pine script</Label>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  <span className="text-foreground/90">.txt</span> or{" "}
+                  <span className="text-foreground/90">.pinescript</span>, include a Vigil template line such as{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 text-[11px] font-mono">
+                    // @vigil:template RSIThresholdReversion
+                  </code>
+                </p>
+              </div>
+              <input
                 ref={fileRef}
                 type="file"
                 accept=".txt,.pinescript,text/plain"
                 disabled={busy}
+                className="sr-only"
+                tabIndex={-1}
                 onChange={(e) => {
                   setError(null);
-                  setHasFile(Boolean(e.target.files?.length));
+                  const f = e.target.files?.[0];
+                  setHasFile(Boolean(f));
+                  setSelectedFileName(f?.name ?? null);
                 }}
               />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Button
+                  type="button"
+                  disabled={busy}
+                  aria-label="Choose Pine script file"
+                  className="w-full shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
+                  onClick={() => fileRef.current?.click()}
+                >
+                  Choose file
+                </Button>
+                <div className="flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-dashed border-border bg-background/60 px-3 py-2">
+                  <span
+                    className={
+                      selectedFileName
+                        ? "truncate text-sm font-medium text-foreground"
+                        : "text-sm text-muted-foreground"
+                    }
+                    title={selectedFileName ?? undefined}
+                  >
+                    {selectedFileName ?? "No file selected"}
+                  </span>
+                </div>
+                {hasFile ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                    disabled={busy}
+                    onClick={clearPineFile}
+                  >
+                    Clear
+                  </Button>
+                ) : null}
+              </div>
             </div>
             <div className="grid sm:grid-cols-3 gap-4">
               <div className="space-y-2">
@@ -271,7 +321,7 @@ const OvernightLearningSection = ({ onReport }: Props) => {
                 metrics={localReport.best_metrics}
                 trades={localReport.recent_trades_best ?? []}
                 sessionLabel="Last run (simulated)"
-                sessionRight={`BTC-USD · ${localReport.template_type}`}
+                sessionRight={`BTC-GBP · ${localReport.template_type}`}
               />
             </div>
 
@@ -299,8 +349,8 @@ const OvernightLearningSection = ({ onReport }: Props) => {
                     <LineChart data={optChartData}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                       <XAxis dataKey="step" allowDecimals={false} />
-                      <YAxis dataKey="profit" tickFormatter={(v) => `$${Number(v).toLocaleString()}`} />
-                      <Tooltip formatter={(v: number) => [fmtUsd(v), "Net profit"]} />
+                      <YAxis dataKey="profit" tickFormatter={(v) => fmtGbpAxis0(Number(v))} />
+                      <Tooltip formatter={(v: number) => [fmtGbp(v), "Net profit"]} />
                       <Line
                         type="monotone"
                         dataKey="profit"
@@ -329,11 +379,11 @@ const OvernightLearningSection = ({ onReport }: Props) => {
                         dataKey="t"
                         type="number"
                         domain={["dataMin", "dataMax"]}
-                        tickFormatter={(v) => new Date(v).toLocaleString(undefined, { month: "short", day: "numeric" })}
+                        tickFormatter={(v) => formatDateGb(v)}
                       />
-                      <YAxis tickFormatter={(v) => `$${Number(v).toLocaleString()}`} />
+                      <YAxis tickFormatter={(v) => fmtGbpAxis0(Number(v))} />
                       <Tooltip
-                        labelFormatter={(v) => (typeof v === "number" ? new Date(v).toLocaleString() : String(v))}
+                        labelFormatter={(v) => (typeof v === "number" ? formatDateTimeGb(v) : String(v))}
                       />
                       <Legend />
                       <Line type="monotone" dataKey="baseline" stroke="hsl(var(--muted-foreground))" dot={false} strokeWidth={2} name="Baseline" connectNulls />
@@ -366,8 +416,8 @@ const OvernightLearningSection = ({ onReport }: Props) => {
                           <td className="py-2 pr-4">
                             <code>{k}</code>
                           </td>
-                          <td className="py-2 pr-4">{String(localReport.baseline_params[k] ?? "—")}</td>
-                          <td className="py-2 font-semibold">{String(localReport.best_params[k] ?? "—")}</td>
+                          <td className="py-2 pr-4">{String(localReport.baseline_params[k] ?? "-")}</td>
+                          <td className="py-2 font-semibold">{String(localReport.best_params[k] ?? "-")}</td>
                         </tr>
                       ))}
                   </tbody>
@@ -403,20 +453,19 @@ const OvernightLearningSection = ({ onReport }: Props) => {
                       const o = localReport.best_metrics[key];
                       const d = localReport.delta_metrics[key];
                       const fmtVal = (v: number | undefined) => {
-                        if (v == null) return "—";
+                        if (v == null) return "-";
                         if (kind === "win") return `${(v * 100).toFixed(1)}%`;
-                        if (kind === "usd") return fmtUsd(v);
+                        if (kind === "usd") return fmtGbp(v);
                         return String(Math.round(v));
                       };
                       const fmtDelta = (v: number | undefined) => {
-                        if (v == null) return "—";
+                        if (v == null) return "-";
                         if (kind === "win") {
                           const sign = v > 0 ? "+" : "";
                           return `${sign}${(v * 100).toFixed(1)} pp`;
                         }
                         if (kind === "usd") {
-                          const sign = v > 0 ? "+" : v < 0 ? "−" : "";
-                          return `${sign}$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                          return v > 0 ? `+${fmtGbpFixed(v)}` : fmtGbpFixed(v);
                         }
                         const sign = v > 0 ? "+" : "";
                         return `${sign}${Math.round(v)}`;
