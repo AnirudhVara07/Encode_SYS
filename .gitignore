@@ -1,9 +1,15 @@
 # --- Secrets & local env (never commit real keys) ---
+# Any `.env` file anywhere in the tree (templates use names like `.env.example`, not `.env`).
+**/.env
 .env
 .env.local
 .env.*.local
 Encode_SYS/backend/.env
 Encode_SYS/.env
+# Local env variants
+*.env.local
+.env.development.local
+.env.production.local
 *.pem
 
 # --- Node ---
