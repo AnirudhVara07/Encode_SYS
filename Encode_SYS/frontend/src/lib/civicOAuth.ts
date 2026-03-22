@@ -78,3 +78,16 @@ export async function startCivicLogin(options?: { returnTo?: string }): Promise<
 
   window.location.assign(u.toString());
 }
+
+/**
+ * Use when an authenticated Vigil API returns 401 (stale Civic token). Sends the user to Civic sign-in;
+ * returns false if the OAuth config could not be loaded (caller may show a manual re-login message).
+ */
+export async function reauthViaCivicLogin(options?: { returnTo?: string }): Promise<boolean> {
+  try {
+    await startCivicLogin(options);
+    return true;
+  } catch {
+    return false;
+  }
+}

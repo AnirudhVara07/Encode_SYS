@@ -412,8 +412,8 @@ export function PaperTradingWorkspace({
                 <strong>Start Paper Vigil</strong>. Watch ticks in <strong>step 3 · Trading floor</strong>.
               </li>
               <li>
-                For news + Civic + optional live execution, use <strong>Start agent</strong> at the bottom (requires
-                sign-in).
+                For news + Civic + live Coinbase execution, use <strong>Start agent</strong> at the bottom of Paper
+                Trading to jump to <strong>Real trading</strong> (Live Vigil section; requires sign-in).
               </li>
             </ol>
           </AlertDescription>
@@ -423,8 +423,9 @@ export function PaperTradingWorkspace({
           <Alert variant="default" className="border-primary/40">
             <AlertTitle className="text-sm">Full agent may be active</AlertTitle>
             <AlertDescription className="text-sm">
-              The dashboard agent can also drive Vigil. Prefer stopping one automation source at a time to avoid
-              confusion. Paper Vigil and agent both use the same paper portfolio when execution is in paper mode.
+              A server-side full agent session may still be running from an older flow. Prefer stopping one automation
+              source at a time. Paper Vigil and that session can both touch the same paper portfolio when execution is in
+              paper mode.
             </AlertDescription>
           </Alert>
         ) : null}

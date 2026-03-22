@@ -450,14 +450,16 @@ export function LiveTradingFloor({ bearer, running, fills, onRefresh, onStop }: 
                 </p>
                 <div className="h-[160px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={fillsChartData}>
+                    <LineChart data={fillsChartData} margin={{ top: 4, right: 16, left: 4, bottom: 2 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                       <XAxis
                         dataKey="t"
                         type="number"
+                        scale="time"
                         domain={["dataMin", "dataMax"]}
                         tickFormatter={(ts) => formatDateGb(ts)}
                         className="text-[10px]"
+                        padding={{ left: 16, right: 16 }}
                       />
                       <YAxis className="text-[10px]" domain={["auto", "auto"]} />
                       <Tooltip

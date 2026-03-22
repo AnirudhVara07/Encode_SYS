@@ -1,16 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Link, useLocation } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Table,
   TableBody,
@@ -23,13 +17,12 @@ import { useVigilUser } from "@/context/VigilUserContext";
 import { UniversalStrategyUpload, type SuggestedAutopilotStrategy } from "@/components/UniversalStrategyUpload";
 import { PaperTradingWorkspace } from "@/components/trading/PaperTradingWorkspace";
 import { TradingFloor } from "@/components/trading/TradingFloor";
+import { GuardrailsPanel } from "@/components/trading/GuardrailsPanel";
 import CoinbaseLiveMarkets from "@/components/CoinbaseLiveMarkets";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
-import { LiveTradingConfirmDialog } from "@/components/LiveTradingConfirmDialog";
 import { VigilAccessGate } from "@/components/VigilAccessGate";
 import { formatDateGb, formatDateTimeGb } from "@/lib/dateFormat";
-import { fetchTradingGuard, type TradingGuardConfig } from "@/lib/tradingGuard";
 import { downloadJsonFile, strategyExportFilename } from "@/lib/strategyDownload";
 import { fmtGbp } from "@/lib/formatGbp";
 import { cn } from "@/lib/utils";
@@ -103,26 +96,56 @@ function FlowStep({
   );
 }
 
+const GUARDRAILS_DEMO_HASH = "#agent-guardrails-demo";
+
+const GUARDRAIL_DEMO_SCENARIOS = [
+  {
+    id: "headline_fomo",
+    label: "Headline / social FOMO",
+    hint: "Chasing breaking news and momentum with no second dataset or stop.",
+  },
+  {
+    id: "size_vs_portfolio",
+    label: "Oversized vs book",
+    hint: "Notional huge versus cash — no reserve or per-trade cap.",
+  },
+  {
+    id: "martingale_no_stop",
+    label: "Double-down, no stop",
+    hint: "Adds size after a loss with no drawdown limit (martingale-style).",
+  },
+  {
+    id: "machine_gun_orders",
+    label: "Runaway velocity",
+    hint: "Fires faster than a human can supervise — no cooldown or audit gate.",
+  },
+] as const;
+
 const Dashboard = () => {
+  const location = useLocation();
   const { bearer, isPro, executionMode } = useVigilUser();
   const loggedIn = Boolean(bearer.trim());
   const [paper, setPaper] = useState<PaperStatus | null>(null);
   const [perf, setPerf] = useState<PerfSummary | null>(null);
   const [agent, setAgent] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [paperVigilRunning, setPaperVigilRunning] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [endVigilBusy, setEndVigilBusy] = useState(false);
-  const [tradingGuard, setTradingGuard] = useState<TradingGuardConfig | null>(null);
-  const [liveAgentConfirmOpen, setLiveAgentConfirmOpen] = useState(false);
   const [strategyRefreshEpoch, setStrategyRefreshEpoch] = useState(0);
   /** When Paper Vigil is running, server skips paper apply — push suggestion into the form without refetching. */
   const [paperStrategyInject, setPaperStrategyInject] = useState<{
     seq: number;
     strategies: SuggestedAutopilotStrategy[];
   } | null>(null);
+  /** Shared with TradingFloor SSE + Agent Guardrails demo (above Full AI agent). */
+  const [paperKillSwitch, setPaperKillSwitch] = useState(false);
+  const [guardrailsNonce, setGuardrailsNonce] = useState(0);
+  const [guardrailDemoBusy, setGuardrailDemoBusy] = useState(false);
+  const [guardrailDemoScenario, setGuardrailDemoScenario] = useState<string>(
+    GUARDRAIL_DEMO_SCENARIOS[0].id,
+  );
 
   const loadPaper = useCallback(async () => {
     try {
@@ -174,16 +197,34 @@ const Dashboard = () => {
   }, [loadAgent]);
 
   useEffect(() => {
-    const t = bearer.trim();
-    if (!t) {
-      setTradingGuard(null);
-      return;
+    if (!loggedIn || location.pathname !== "/paper-trading") return;
+    if (location.hash !== GUARDRAILS_DEMO_HASH) return;
+    const t = window.setTimeout(() => {
+      document.getElementById("agent-guardrails-demo")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 280);
+    return () => window.clearTimeout(t);
+  }, [loggedIn, location.pathname, location.hash]);
+
+  const runGuardrailDemo = useCallback(async () => {
+    setGuardrailDemoBusy(true);
+    try {
+      const r = await fetch("/api/paper/guardrails/demo-block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenario: guardrailDemoScenario }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { detail?: unknown };
+      if (!r.ok) {
+        const msg = typeof d.detail === "string" ? d.detail : `Request failed (${r.status})`;
+        console.error(msg);
+        return;
+      }
+      setGuardrailsNonce((n) => n + 1);
+      void loadPaper();
+    } finally {
+      setGuardrailDemoBusy(false);
     }
-    const auth = `Bearer ${t}`;
-    void fetchTradingGuard(auth)
-      .then(setTradingGuard)
-      .catch(() => setTradingGuard({ captcha_required: false, turnstile_site_key: "" }));
-  }, [bearer]);
+  }, [guardrailDemoScenario, loadPaper]);
 
   const downloadSessionStrategy = useCallback(async () => {
     const t = bearer.trim();
@@ -232,66 +273,6 @@ const Dashboard = () => {
     }
   }, [bearer, loadPaper, loadPerf, loadAgent]);
 
-  const startAgent = async (captchaToken?: string): Promise<boolean> => {
-    const t = bearer.trim();
-    if (!t) {
-      setMsg("Sign in to start the agent.");
-      return false;
-    }
-    setBusy(true);
-    setMsg(null);
-    try {
-      const r = await fetch("/start", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reset_paper: false,
-          starting_usd: 10_000,
-          execution_mode: executionMode,
-          ...(captchaToken ? { captcha_token: captchaToken } : {}),
-        }),
-      });
-      const d = await r.json().catch(() => ({}));
-      const det = d.detail;
-      if (
-        r.status === 403 &&
-        typeof det === "object" &&
-        det !== null &&
-        (det as { code?: string }).code === "upgrade_required"
-      ) {
-        setUpgradeOpen(true);
-        setMsg(null);
-        return false;
-      }
-      if (!r.ok) {
-        const det = d.detail;
-        throw new Error(typeof det === "string" ? det : JSON.stringify(det));
-      }
-      setAgent(d);
-      setMsg("Agent started, Vigil autopilot is running.");
-      await loadPaper();
-      return true;
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Start failed");
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const stopAgent = async () => {
-    const t = bearer.trim();
-    if (!t) return;
-    setBusy(true);
-    try {
-      await fetch("/stop", { method: "POST", headers: { Authorization: `Bearer ${t}` } });
-      setMsg("Agent stopped.");
-      await loadAgent();
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const serverMode = (agent?.execution_mode as string) || executionMode;
   const autonomous = Boolean(agent?.autonomous);
 
@@ -316,25 +297,6 @@ const Dashboard = () => {
           </div>
         ) : (
           <div className="container mx-auto max-w-6xl px-6 pt-28 pb-20 space-y-8">
-            <LiveTradingConfirmDialog
-              open={liveAgentConfirmOpen}
-              onOpenChange={setLiveAgentConfirmOpen}
-              guard={tradingGuard}
-              busy={busy}
-              title="Confirm start agent (live)"
-              confirmLabel="Start agent"
-              subcopy={
-                <p>
-                  You are signed in with Civic. Complete the check below so we know a person is confirming — then the
-                  full agent will start in <strong>live</strong> execution mode.
-                </p>
-              }
-              ackLabel="I understand I am starting the full agent in live execution mode."
-              onConfirm={async ({ captchaToken }) => {
-                const ok = await startAgent(captchaToken);
-                if (ok) setLiveAgentConfirmOpen(false);
-              }}
-            />
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-4xl font-bold tracking-tight">Paper Trading</h1>
@@ -427,7 +389,16 @@ const Dashboard = () => {
             title="Trading floor and performance over time"
             description="Block or allow paper trades, start or stop automation, read the live tick stream and balances, then review equity and closed-trade statistics as the session evolves."
           >
-            <TradingFloor paper={paper} onRefreshPaper={loadPaper} busy={busy} setBusy={setBusy} />
+            <TradingFloor
+              paper={paper}
+              onRefreshPaper={loadPaper}
+              busy={busy}
+              setBusy={setBusy}
+              paperKillSwitch={paperKillSwitch}
+              setPaperKillSwitch={setPaperKillSwitch}
+              guardrailsNonce={guardrailsNonce}
+              setGuardrailsNonce={setGuardrailsNonce}
+            />
             {paper?.started ? (
               <div className="flex justify-end">
                 <Button variant="outline" size="sm" onClick={() => void loadPerf()} disabled={busy}>
@@ -489,15 +460,17 @@ const Dashboard = () => {
                   {perf.equity_curve && perf.equity_curve.length > 1 ? (
                     <div className="h-56">
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData(perf.equity_curve)}>
+                        <LineChart data={chartData(perf.equity_curve)} margin={{ top: 4, right: 16, left: 4, bottom: 2 }}>
                           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                           <XAxis
                             dataKey="t"
                             type="number"
+                            scale="time"
                             domain={["dataMin", "dataMax"]}
                             tickFormatter={(v) => formatDateGb(v)}
+                            padding={{ left: 20, right: 20 }}
                           />
-                          <YAxis tickFormatter={(v) => fmtGbp(Number(v))} />
+                          <YAxis tickFormatter={(v) => fmtGbp(Number(v))} width={64} />
                           <Tooltip
                             labelFormatter={(v) => (typeof v === "number" ? formatDateTimeGb(v) : String(v))}
                             formatter={(v: number) => [fmtGbp(v), "Equity"]}
@@ -513,40 +486,97 @@ const Dashboard = () => {
           </FlowStep>
         </div>
 
+        <section
+          id="agent-guardrails-demo"
+          className="scroll-mt-28 rounded-lg border border-primary/20 bg-background/50 p-5 sm:p-6 space-y-5"
+          aria-labelledby="agent-guardrails-demo-heading"
+        >
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div className="space-y-3 min-w-0 max-w-3xl">
+              <h2
+                id="agent-guardrails-demo-heading"
+                className="text-sm font-semibold font-mono uppercase tracking-widest text-foreground"
+              >
+                Agent Guardrails demo
+              </h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Pick a <strong className="text-foreground font-medium">reckless pattern</strong> below, then send it
+                through the same path as automation. Each option explains why that behaviour is unsafe; guardrails
+                block and log it — nothing hits your paper book. Activity in{" "}
+                <strong className="text-foreground font-medium">step 3 · Trading floor</strong> updates live via the
+                same stream.
+              </p>
+              <RadioGroup
+                value={guardrailDemoScenario}
+                onValueChange={setGuardrailDemoScenario}
+                className="grid gap-3 sm:grid-cols-2"
+                aria-label="Guardrail demo scenario"
+              >
+                {GUARDRAIL_DEMO_SCENARIOS.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex gap-3 rounded-md border border-border/80 bg-muted/15 p-3 has-[[data-state=checked]]:border-primary/40 has-[[data-state=checked]]:bg-primary/5"
+                  >
+                    <RadioGroupItem value={s.id} id={`guardrail-demo-${s.id}`} className="mt-0.5" />
+                    <div className="space-y-1 min-w-0">
+                      <Label htmlFor={`guardrail-demo-${s.id}`} className="text-sm font-medium cursor-pointer leading-snug">
+                        {s.label}
+                      </Label>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{s.hint}</p>
+                    </div>
+                  </div>
+                ))}
+              </RadioGroup>
+              <ol className="text-xs font-mono text-muted-foreground space-y-1 list-decimal list-inside">
+                <li>Demo trade sent (server receives the intent)</li>
+                <li>Guardrails run (same pipeline as Vigil)</li>
+                <li>Block recorded; SSE updates activity + this terminal</li>
+              </ol>
+            </div>
+            <Button
+              type="button"
+              variant="default"
+              size="default"
+              className="shrink-0 font-mono text-xs sm:text-sm w-full sm:w-auto"
+              disabled={!paper?.started || guardrailDemoBusy}
+              onClick={() => void runGuardrailDemo()}
+            >
+              {guardrailDemoBusy ? "Sending…" : "Send demo trade"}
+            </Button>
+          </div>
+
+          <GuardrailsPanel
+            title="Agent guardrails terminal"
+            fetchUrl="/api/paper/guardrails"
+            refreshNonce={guardrailsNonce}
+            localKillSwitch={paperKillSwitch}
+          />
+        </section>
+
         <Card>
           <CardHeader>
             <CardTitle className="text-xl text-primary">Full AI agent (when ready)</CardTitle>
             <CardDescription>
-              Civic session, news, and Vigil autopilot together. Use <strong>Paper</strong> execution mode here to keep
-              filling the same simulated portfolio after your tests above. Stop <strong>Paper Vigil</strong> first, only
-              one Vigil loop can run at a time.
+              Open <strong>Real trading</strong> to link Coinbase, run safeguards, and start <strong>Live Vigil</strong>. Stop{" "}
+              <strong>Paper Vigil</strong> first if it is running — only one Vigil loop should run at a time.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => {
-                  if (executionMode === "live") setLiveAgentConfirmOpen(true);
-                  else void startAgent();
-                }}
-                disabled={busy || paperVigilRunning || !bearer.trim()}
-                title={
-                  paperVigilRunning
-                    ? "Stop Paper Vigil before starting the full agent"
-                    : !bearer.trim()
-                      ? "Sign in to start the agent"
-                      : undefined
-                }
-              >
-                Start agent
-              </Button>
-              <Button variant="secondary" onClick={() => void stopAgent()} disabled={busy || !bearer.trim()}>
-                Stop agent
-              </Button>
+              {!bearer.trim() ? (
+                <Button type="button" disabled title="Sign in to open Real trading">
+                  Start agent
+                </Button>
+              ) : (
+                <Button type="button" asChild>
+                  <Link to="/real-trading#live-vigil">Start agent</Link>
+                </Button>
+              )}
             </div>
             {paperVigilRunning ? (
               <p className="text-sm text-vigil-amber font-mono">
-                Paper Vigil is running, stop it above to start the full agent, or keep testing on paper only.
+                Paper Vigil is still running — stop it above before you start live automation on Real trading, or keep
+                testing on paper only.
               </p>
             ) : null}
           </CardContent>
@@ -634,22 +664,6 @@ const Dashboard = () => {
         )}
       </main>
       <Footer />
-
-      <AlertDialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Upgrade to Pro</AlertDialogTitle>
-            <AlertDialogDescription>
-              Upgrade to Pro (Simulate Pro in the account menu) to unlock live execution flows in this demo. The 14-day
-              strategy backtest on Back testing is available to any signed-in Civic session. Free tier includes
-              unlimited paper trading and 7-day backtests. No payment is connected yet.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setUpgradeOpen(false)}>OK</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 };

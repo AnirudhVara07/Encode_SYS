@@ -35,7 +35,7 @@ from ..coinbase_live.live_events import publish as publish_live_event
 from ..coinbase_live.live_events import subscribe as subscribe_live_events
 from ..coinbase_live.live_events import unsubscribe as unsubscribe_live_events
 from ..agent import execution_gate, rules as agent_rules, state as agent_state
-from ..agent.guardrail_digest import hourly_series_for_blocked, recent_blocked
+from ..agent.guardrail_digest import bucketed_series_for_blocked, recent_blocked
 from ..coinbase_live.runner import (
     drop_runtime,
     ensure_scheduler_started,
@@ -219,7 +219,7 @@ def coinbase_guardrails(session: Dict[str, Any] = Depends(get_current_session)):
     blocks = agent_state.list_blocked_for(book="coinbase_live", owner_sub=civic)
     posture = agent_rules.news_posture_snapshot()
     rules_summary = agent_rules.summarize_rules()
-    rule_codes, series = hourly_series_for_blocked(blocks)
+    rule_codes, series = bucketed_series_for_blocked(blocks, bucket_seconds=60.0)
     return {
         "book": "coinbase_live",
         "posture": posture,

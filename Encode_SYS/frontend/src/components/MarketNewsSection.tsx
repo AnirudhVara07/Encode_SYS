@@ -2,35 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDateTimeGb } from "@/lib/dateFormat";
+import {
+  describeMarketNewsHttpFailure,
+  marketNewsUrl,
+  normalizeStrategyInsights,
+  parseMarketArticles,
+  type MarketArticle,
+  type MarketNewsResponse,
+  type StrategyInsights,
+} from "@/lib/marketNews";
 import { cn } from "@/lib/utils";
 import { useScrollReveal } from "./useScrollReveal";
-
-type MarketArticle = {
-  title: string;
-  description: string;
-  url: string;
-  image_url: string;
-  published_at: string;
-  source: string;
-  entities: string[];
-};
-
-type StrategyInsights = {
-  summary: string;
-  considerations: string[];
-  macro_todos?: string[];
-  asset_todos?: string[];
-  error: string | null;
-};
-
-type MarketNewsResponse = {
-  articles: MarketArticle[];
-  meta: Record<string, unknown> | null;
-  error: string | null;
-  strategy_insights?: StrategyInsights;
-  /** FastAPI HTTPException body */
-  detail?: string | string[];
-};
 
 function formatWhen(iso: string) {
   if (!iso) return "";
@@ -58,80 +40,17 @@ const MarketNewsSection = ({ className }: MarketNewsSectionProps) => {
     setSummaryLoading(true);
     setSummaryFetchError(null);
     try {
-      const res = await fetch("/api/marketaux-news?limit=12&insights=1");
+      const res = await fetch(marketNewsUrl(12, true));
       const data = (await res.json()) as MarketNewsResponse;
-      // #region agent log
-      {
-        const si = data.strategy_insights;
-        fetch("http://127.0.0.1:7525/ingest/58246f49-c20a-4cf3-8c2c-5b5ed0515952", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "16c4fd" },
-          body: JSON.stringify({
-            sessionId: "16c4fd",
-            runId: "pre",
-            hypothesisId: "H2",
-            location: "MarketNewsSection.tsx:afterSummaryFetch",
-            message: "marketing summary fetch parsed",
-            data: {
-              ok: res.ok,
-              topError: typeof data.error === "string" ? data.error.length : -1,
-              articleCount: Array.isArray(data.articles) ? data.articles.length : -1,
-              hasSiKey: Object.prototype.hasOwnProperty.call(data, "strategy_insights"),
-              siType: si === undefined ? "undefined" : si === null ? "null" : typeof si,
-              siSummaryLen:
-                si && typeof si === "object" && "summary" in si && typeof (si as StrategyInsights).summary === "string"
-                  ? (si as StrategyInsights).summary.length
-                  : -1,
-              siErrorLen:
-                si && typeof si === "object" && typeof (si as StrategyInsights).error === "string"
-                  ? ((si as StrategyInsights).error as string).length
-                  : 0,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-      }
-      // #endregion
       if (!res.ok) {
-        const raw = data as MarketNewsResponse;
-        let msg: string | undefined =
-          typeof raw.error === "string" && raw.error.trim() ? raw.error.trim() : undefined;
-        if (!msg && res.status === 404) {
-          msg =
-            "The news API was not found (HTTP 404). Restart the Vigil backend (uvicorn on port 8000) from the current project, or open the site from http://127.0.0.1:8000/.";
-        }
-        if (!msg && typeof raw.detail === "string" && raw.detail === "Not found") {
-          msg =
-            "The news API was not found. Restart the Vigil backend from the current codebase so GET /api/marketaux-news is registered.";
-        }
-        if (!msg && typeof raw.detail === "string") {
-          msg = raw.detail;
-        }
-        setSummaryFetchError(msg || "Could not load AI summary.");
+        setSummaryFetchError(describeMarketNewsHttpFailure(res, data, "Could not load AI summary."));
         return;
       }
       if (data.error) {
         setSummaryFetchError(data.error);
         return;
       }
-      const si = data.strategy_insights;
-      if (si && typeof si === "object") {
-        setInsights({
-          summary: typeof si.summary === "string" ? si.summary : "",
-          considerations: Array.isArray(si.considerations)
-            ? si.considerations.filter((x): x is string => typeof x === "string")
-            : [],
-          macro_todos: Array.isArray(si.macro_todos)
-            ? si.macro_todos.filter((x): x is string => typeof x === "string")
-            : undefined,
-          asset_todos: Array.isArray(si.asset_todos)
-            ? si.asset_todos.filter((x): x is string => typeof x === "string")
-            : undefined,
-          error: typeof si.error === "string" ? si.error : null,
-        });
-      } else {
-        setInsights(null);
-      }
+      setInsights(normalizeStrategyInsights(data.strategy_insights));
     } catch {
       setSummaryFetchError("Could not load AI summary.");
     } finally {
@@ -145,27 +64,13 @@ const MarketNewsSection = ({ className }: MarketNewsSectionProps) => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/marketaux-news?limit=12");
+        const res = await fetch(marketNewsUrl(12, false));
         const data = (await res.json()) as MarketNewsResponse;
         if (cancelled) return;
         if (!res.ok) {
           setArticles([]);
           setInsights(null);
-          const raw = data as MarketNewsResponse;
-          let msg: string | undefined =
-            typeof raw.error === "string" && raw.error.trim() ? raw.error.trim() : undefined;
-          if (!msg && res.status === 404) {
-            msg =
-              "The news API was not found (HTTP 404). Restart the Vigil backend (uvicorn on port 8000) from the current project, or open the site from http://127.0.0.1:8000/.";
-          }
-          if (!msg && typeof raw.detail === "string" && raw.detail === "Not found") {
-            msg =
-              "The news API was not found. Restart the Vigil backend from the current codebase so GET /api/marketaux-news is registered.";
-          }
-          if (!msg && typeof raw.detail === "string") {
-            msg = raw.detail;
-          }
-          setError(msg || "Could not load news.");
+          setError(describeMarketNewsHttpFailure(res, data, "Could not load news."));
           return;
         }
         if (data.error) {
@@ -174,7 +79,7 @@ const MarketNewsSection = ({ className }: MarketNewsSectionProps) => {
           setError(data.error);
           return;
         }
-        setArticles(Array.isArray(data.articles) ? data.articles : []);
+        setArticles(parseMarketArticles(data.articles));
       } catch {
         if (!cancelled) {
           setArticles([]);

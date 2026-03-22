@@ -99,7 +99,10 @@ const Navbar = () => {
           <NavLink
             to="/paper-trading"
             className={({ isActive }) =>
-              cn("transition-colors hover:text-foreground", isActive ? "text-foreground font-medium" : "text-muted-foreground")
+              cn(
+                "transition-colors hover:text-foreground",
+                isActive ? "text-foreground font-medium" : "text-muted-foreground",
+              )
             }
           >
             Paper Trading

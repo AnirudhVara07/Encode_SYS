@@ -44,15 +44,53 @@ def news_posture_snapshot() -> Dict[str, Any]:
     }
 
 
+# UI guardrail demo: each variant is a different "reckless" narrative; all blocked before any fill.
+_GUARDRAIL_DEMO_SCENARIOS: Dict[str, Tuple[str, str]] = {
+    "headline_fomo": (
+        "demo_reckless_headline",
+        "Blocked (demo): buy fired only on a breaking headline and social momentum — no second data source, "
+        "no stop, no max loss. That is headline-chasing, not a risk-bounded strategy.",
+    ),
+    "size_vs_portfolio": (
+        "demo_reckless_size",
+        "Blocked (demo): proposed notional is huge versus book cash — no reserve, no position cap, "
+        "one bad print could wipe the portfolio. Sizing has to respect capital and buffers.",
+    ),
+    "martingale_no_stop": (
+        "demo_reckless_no_stop",
+        "Blocked (demo): bot doubled down after a loss with no stop and no drawdown limit — classic martingale risk. "
+        "Guardrails exist to cap how much loss can stack before someone reviews.",
+    ),
+    "machine_gun_orders": (
+        "demo_reckless_velocity",
+        "Blocked (demo): automation would spam buys faster than a human could supervise — no cooldown, "
+        "no intent checksum. Velocity and audit gates stop runaway bots.",
+    ),
+}
+_GUARDRAIL_DEMO_DEFAULT = "headline_fomo"
+
+
+def guardrail_demo_scenario_keys() -> Tuple[str, ...]:
+    return tuple(_GUARDRAIL_DEMO_SCENARIOS.keys())
+
+
+def resolve_guardrail_demo_scenario(key: Optional[str]) -> str:
+    k = (key or _GUARDRAIL_DEMO_DEFAULT).strip().lower()
+    if k not in _GUARDRAIL_DEMO_SCENARIOS:
+        raise ValueError(f"Unknown guardrail demo scenario {key!r}; use one of {guardrail_demo_scenario_keys()}")
+    return k
+
+
 @dataclass
 class TradeContext:
     side: str  # buy | sell
     usd: Optional[float]
     btc: Optional[float]
-    source: str  # manual | vigil
+    source: str  # manual | vigil | guardrail_demo
     paper_started: bool
     session_sub: Optional[str] = None
     book: str = "paper"  # paper | coinbase_live
+    demo_scenario: Optional[str] = None  # guardrail_demo only; key into _GUARDRAIL_DEMO_SCENARIOS
 
 
 def _news_strict_blocks_vigil() -> Tuple[bool, str]:
@@ -63,29 +101,48 @@ def _news_strict_blocks_vigil() -> Tuple[bool, str]:
     return False, ""
 
 
-def evaluate(ctx: TradeContext) -> Tuple[bool, str, str]:
+def collect_rule_failures(ctx: TradeContext) -> List[Tuple[str, str]]:
     """
-    Ordered rules. Returns (allowed, code, message).
+    Every rule that fails for this context, in pipeline order (not short-circuited).
+    Used for audit rows and UI so one blocked trade can list multiple causes (e.g. kill switch + demo narrative).
     """
+    failures: List[Tuple[str, str]] = []
+
     if agent_state.get_kill_switch():
-        return False, "kill_switch", "Global kill switch is ON"
+        failures.append(("kill_switch", "Global kill switch is ON"))
 
     book = (ctx.book or "paper").strip().lower()
     if book not in ("paper", "coinbase_live"):
-        return False, "invalid_book", "book must be paper or coinbase_live"
+        failures.append(("invalid_book", "book must be paper or coinbase_live"))
+        return failures
 
     if book == "paper" and not ctx.paper_started:
-        return False, "paper_not_started", "Paper portfolio not started"
+        failures.append(("paper_not_started", "Paper portfolio not started"))
+
+    src = (ctx.source or "").strip().lower()
+    if src == "guardrail_demo":
+        if book != "paper":
+            failures.append(("invalid_source", "guardrail_demo is only used for the paper book"))
+        else:
+            try:
+                sk = resolve_guardrail_demo_scenario(ctx.demo_scenario)
+            except ValueError as e:
+                failures.append(("demo_invalid_scenario", str(e)))
+            else:
+                code, msg = _GUARDRAIL_DEMO_SCENARIOS[sk]
+                failures.append((code, msg))
+        return failures
 
     max_quote = float(os.getenv("AGENT_MAX_TRADE_GBP") or os.getenv("AGENT_MAX_TRADE_USD", "1e12"))
     if ctx.side == "buy" and ctx.usd is not None and ctx.usd > max_quote:
-        return False, "max_notional", f"Trade amount {ctx.usd} exceeds max notional (AGENT_MAX_TRADE_GBP or AGENT_MAX_TRADE_USD)"
+        failures.append(
+            ("max_notional", f"Trade amount {ctx.usd} exceeds max notional (AGENT_MAX_TRADE_GBP or AGENT_MAX_TRADE_USD)"),
+        )
 
     if ctx.side == "sell" and ctx.btc is not None:
-        # optional max btc per sell
         max_btc = float(os.getenv("AGENT_MAX_TRADE_BTC", "1e9"))
         if ctx.btc > max_btc:
-            return False, "max_btc", f"Sell btc exceeds AGENT_MAX_TRADE_BTC"
+            failures.append(("max_btc", "Sell btc exceeds AGENT_MAX_TRADE_BTC"))
 
     min_cash = float(os.getenv("AGENT_MIN_GBP_CASH_AFTER_BUY") or os.getenv("AGENT_MIN_USD_CASH_AFTER_BUY", "0"))
     if book == "paper" and ctx.side == "buy" and ctx.usd is not None and min_cash > 0:
@@ -94,18 +151,29 @@ def evaluate(ctx: TradeContext) -> Tuple[bool, str, str]:
         st = paper_portfolio.get_status()
         cash = float(st.get("usd_cash") or 0.0)
         if cash - ctx.usd < min_cash - 1e-9:
-            return False, "min_cash_reserve", f"Buy would leave GBP cash below {min_cash}"
+            failures.append(("min_cash_reserve", f"Buy would leave GBP cash below {min_cash}"))
 
     if ctx.source == "vigil":
         strict, msg = _news_strict_blocks_vigil()
         if strict:
-            return False, "news_block", msg
+            failures.append(("news_block", msg))
 
     if os.getenv("AGENT_REQUIRE_SESSION", "").lower() in ("1", "true", "yes"):
         if not ctx.session_sub:
-            return False, "session_required", "AGENT_REQUIRE_SESSION is set but no session"
+            failures.append(("session_required", "AGENT_REQUIRE_SESSION is set but no session"))
 
-    return True, "ok", ""
+    return failures
+
+
+def evaluate(ctx: TradeContext) -> Tuple[bool, str, str]:
+    """
+    Ordered rules. Returns (allowed, code, message) for the first failing rule (chart / primary code).
+    """
+    failures = collect_rule_failures(ctx)
+    if not failures:
+        return True, "ok", ""
+    code, msg = failures[0]
+    return False, code, msg
 
 
 def summarize_rules() -> List[Dict[str, Any]]:
@@ -117,5 +185,22 @@ def summarize_rules() -> List[Dict[str, Any]]:
             "description": f"AGENT_MAX_TRADE_GBP={os.getenv('AGENT_MAX_TRADE_GBP') or os.getenv('AGENT_MAX_TRADE_USD', '1e12')}",
         },
         {"id": "news_block", "description": "NEWS_STRICT_MODE blocks Vigil automation on macro headlines"},
+        {
+            "id": "demo_reckless_headline",
+            "description": "UI demo: headline/social FOMO only (POST /api/paper/guardrails/demo-block)",
+        },
+        {
+            "id": "demo_reckless_size",
+            "description": "UI demo: notional vs portfolio / no reserve (demo-block)",
+        },
+        {
+            "id": "demo_reckless_no_stop",
+            "description": "UI demo: martingale-style doubling, no stop (demo-block)",
+        },
+        {
+            "id": "demo_reckless_velocity",
+            "description": "UI demo: unsupervised order spam velocity (demo-block)",
+        },
+        {"id": "demo_invalid_scenario", "description": "Invalid demo scenario id in request body"},
         {"id": "session_required", "description": "Optional AGENT_REQUIRE_SESSION"},
     ]

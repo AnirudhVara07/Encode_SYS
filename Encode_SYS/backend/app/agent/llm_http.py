@@ -6,8 +6,6 @@ Set OPENROUTER_API_KEY and optionally OPENROUTER_MODEL (see openrouter_http.py d
 
 from __future__ import annotations
 
-import json
-import time
 from typing import Any, Dict, List, Tuple
 
 from .llm_safety import SafetyMeta, SafetyProfile, merge_safety_meta, screen_llm_request, screen_llm_response
@@ -18,36 +16,6 @@ from .openrouter_http import (
 )
 
 
-def _agent_debug_log(
-    *,
-    hypothesis_id: str,
-    location: str,
-    message: str,
-    data: dict,
-    run_id: str = "pre-fix",
-) -> None:
-    # #region agent log
-    try:
-        payload = {
-            "sessionId": "7c30d5",
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with open(
-            "/Users/admin/Downloads/Encode_SYS-main/.cursor/debug-7c30d5.log",
-            "a",
-            encoding="utf-8",
-        ) as _f:
-            _f.write(json.dumps(payload, default=str) + "\n")
-    except Exception:
-        pass
-    # #endregion
-
-
 def llm_key_error_message() -> str:
     return "No LLM API key: set OPENROUTER_API_KEY"
 
@@ -56,24 +24,8 @@ def require_llm_config() -> Tuple[str, str] | None:
     """Returns (api_key, model) if OPENROUTER_API_KEY is set, else None."""
     key = openrouter_api_key()
     if not key:
-        _agent_debug_log(
-            hypothesis_id="H2",
-            location="llm_http.py:require_llm_config",
-            message="no_llm_key",
-            data={"model_env": openrouter_model()},
-        )
         return None
     model = openrouter_model()
-    _agent_debug_log(
-        hypothesis_id="H1_H4",
-        location="llm_http.py:require_llm_config",
-        message="llm_config_resolved",
-        data={
-            "key_source": "OPENROUTER",
-            "provider": "openrouter",
-            "model": model,
-        },
-    )
     return (key, model)
 
 

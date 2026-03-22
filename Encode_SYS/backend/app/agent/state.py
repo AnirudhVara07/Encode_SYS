@@ -174,13 +174,16 @@ def record_blocked(
     btc: Optional[float],
     source: str,
     extra: Optional[Dict[str, Any]] = None,
+    reasons: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
+    rs = reasons if reasons is not None else [{"rule_code": rule_code, "message": message}]
     entry = {
         "id": str(uuid.uuid4()),
         "ts": time.time(),
         "type": "blocked",
         "rule_code": rule_code,
         "message": message,
+        "reasons": rs,
         "side": side,
         "usd": usd,
         "btc": btc,

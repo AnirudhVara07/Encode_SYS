@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple
 
 from . import state as agent_state
-from .rules import TradeContext, evaluate
+from .rules import TradeContext, collect_rule_failures, evaluate
 
 
 def check_trade_allowed(
@@ -15,6 +15,7 @@ def check_trade_allowed(
     paper_started: bool,
     session_sub: Optional[str] = None,
     book: str = "paper",
+    demo_scenario: Optional[str] = None,
 ) -> Tuple[bool, str, str]:
     ctx = TradeContext(
         side=side,
@@ -24,6 +25,7 @@ def check_trade_allowed(
         paper_started=paper_started,
         session_sub=session_sub,
         book=book,
+        demo_scenario=demo_scenario,
     )
     return evaluate(ctx)
 
@@ -38,11 +40,12 @@ def gate_or_block(
     session_sub: Optional[str] = None,
     news_snapshot_id: Optional[str] = None,
     book: str = "paper",
+    demo_scenario: Optional[str] = None,
 ) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """
     If blocked, records blocked trade and returns (False, entry).
     """
-    ok, code, msg = check_trade_allowed(
+    ctx = TradeContext(
         side=side,
         usd=usd,
         btc=btc,
@@ -50,9 +53,13 @@ def gate_or_block(
         paper_started=paper_started,
         session_sub=session_sub,
         book=book,
+        demo_scenario=demo_scenario,
     )
-    if ok:
+    failures = collect_rule_failures(ctx)
+    if not failures:
         return True, None
+    code, msg = failures[0]
+    reasons = [{"rule_code": c, "message": m} for c, m in failures]
     extra: Dict[str, Any] = {
         "book": (book or "paper").strip().lower(),
     }
@@ -68,6 +75,7 @@ def gate_or_block(
         btc=btc,
         source=source,
         extra=extra,
+        reasons=reasons,
     )
     try:
         from . import ws_bus

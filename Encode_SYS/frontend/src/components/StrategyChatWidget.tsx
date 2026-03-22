@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { MessageCircle, Send, Shield, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { VigilAccessGate } from "@/components/VigilAccessGate";
 import { useVigilUser } from "@/context/VigilUserContext";
 import { cn, stripMarkdownBoldForChat } from "@/lib/utils";
 
@@ -23,7 +21,6 @@ const SAMPLE_QUESTIONS = [
 ];
 
 export function StrategyChatWidget() {
-  const location = useLocation();
   const { bearer } = useVigilUser();
   const loggedIn = Boolean(bearer.trim());
   const [open, setOpen] = useState(false);
@@ -102,6 +99,8 @@ export function StrategyChatWidget() {
 
   const onSubmit = () => void sendWithText(draft);
 
+  if (!loggedIn) return null;
+
   if (!open) {
     return (
       <div className="fixed bottom-5 right-5 z-50 sm:bottom-6 sm:right-6">
@@ -153,22 +152,11 @@ export function StrategyChatWidget() {
           </div>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
-          {!loggedIn ? (
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-              <VigilAccessGate
-                variant="panel"
-                title="Log in to chat"
-                description="Chat to Vigil uses your Civic session for personalized context. Log in or sign up to continue."
-                returnTo={`${location.pathname}${location.search}`}
-              />
-            </div>
-          ) : null}
-          {loggedIn && banner ? (
+          {banner ? (
             <div className="shrink-0 border-b border-destructive/20 bg-destructive/5 px-3 py-2">
               <p className="text-xs text-destructive font-mono leading-snug">{banner}</p>
             </div>
           ) : null}
-          {loggedIn ? (
           <div
             ref={scrollRef}
             className="strategy-chat-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3"
@@ -215,8 +203,6 @@ export function StrategyChatWidget() {
               ) : null}
             </div>
           </div>
-          ) : null}
-          {loggedIn ? (
           <div className="shrink-0 space-y-2 border-t bg-card/95 px-3 pb-3 pt-2 backdrop-blur-sm">
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Suggested prompts</p>
             <div className="-mx-0.5 flex gap-1.5 overflow-x-auto overflow-y-hidden pb-1 [scrollbar-width:thin]">
@@ -261,7 +247,6 @@ export function StrategyChatWidget() {
               </Button>
             </div>
           </div>
-          ) : null}
         </CardContent>
       </Card>
     </div>

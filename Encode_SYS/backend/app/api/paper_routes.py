@@ -12,9 +12,10 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from ..agent import execution_gate
 from ..agent import rules as agent_rules
 from ..agent import session_jwt, state as agent_state
-from ..agent.guardrail_digest import hourly_series_for_blocked, recent_blocked
+from ..agent.guardrail_digest import bucketed_series_for_blocked, recent_blocked
 from ..agent.secrets_redact import redact_secrets_for_client
 from ..coinbase.candles import fetch_coinbase_candles_btc_usd, generate_synthetic_candles_btc_usd
 from ..paper import autopilot as paper_autopilot
@@ -89,7 +90,7 @@ def paper_guardrails():
     blocks = agent_state.list_blocked_for(book="paper")
     posture = agent_rules.news_posture_snapshot()
     rules_summary = agent_rules.summarize_rules()
-    rule_codes, series = hourly_series_for_blocked(blocks)
+    rule_codes, series = bucketed_series_for_blocked(blocks, bucket_seconds=60.0)
     return {
         "book": "paper",
         "posture": posture,
@@ -99,6 +100,127 @@ def paper_guardrails():
         "series_rule_codes": rule_codes,
         "recent_blocks": recent_blocked(blocks, limit=30),
         "kill_switch": agent_state.get_kill_switch(),
+    }
+
+
+# Narrative-only notional for the paper guardrails demo (blocked as demo_reckless_* codes, not max_notional).
+_GUARDRAIL_DEMO_NOTIONAL_GBP = 250_000.0
+
+_GUARDRAIL_DEMO_TICK: Dict[str, Dict[str, Any]] = {
+    "headline_fomo": {
+        "strategy_id": "guardrail-demo-headline",
+        "name": "Demo: headline / social FOMO",
+        "story": "Signal = trending headline + social velocity only; ignores book size, stops, and macro calendar.",
+    },
+    "size_vs_portfolio": {
+        "strategy_id": "guardrail-demo-size",
+        "name": "Demo: all-in notional",
+        "story": "Proposed size is huge versus cash on hand — no reserve, no per-trade cap, no stress assumption.",
+    },
+    "martingale_no_stop": {
+        "strategy_id": "guardrail-demo-martingale",
+        "name": "Demo: double-down after loss",
+        "story": "Increases size after a red trade with no stop and no max drawdown — unbounded loss path.",
+    },
+    "machine_gun_orders": {
+        "strategy_id": "guardrail-demo-velocity",
+        "name": "Demo: machine-gun buys",
+        "story": "Would fire buys faster than a human can review — no cooldown, no rate limit, no intent audit.",
+    },
+}
+
+
+class GuardrailDemoBody(BaseModel):
+    scenario: str = Field(
+        default="headline_fomo",
+        description="Demo scenario key (headline_fomo | size_vs_portfolio | martingale_no_stop | machine_gun_orders)",
+    )
+
+
+@router.post("/guardrails/demo-block")
+def paper_guardrails_demo_block(body: GuardrailDemoBody = GuardrailDemoBody()):
+    """
+    Run a dedicated UI demo trade source (guardrail_demo): always blocked with a scenario-specific code/message,
+    records an audit row, and publishes vigil_tick on the paper SSE stream (no portfolio change).
+    """
+    st = paper_portfolio.get_status()
+    if not st.get("started"):
+        raise HTTPException(status_code=400, detail="Start paper trading (POST /api/paper/reset) first")
+
+    try:
+        scenario_key = agent_rules.resolve_guardrail_demo_scenario(body.scenario)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    sid = agent_state.get_autopilot_owner_session_id()
+    gate_session_sub: Optional[str] = None
+    if sid:
+        sess = agent_state.get_server_session(sid)
+        if isinstance(sess, dict):
+            cs = sess.get("sub")
+            if isinstance(cs, str) and cs.strip():
+                gate_session_sub = cs.strip()
+        if gate_session_sub is None:
+            gate_session_sub = sid
+
+    allowed, blocked = execution_gate.gate_or_block(
+        side="buy",
+        usd=_GUARDRAIL_DEMO_NOTIONAL_GBP,
+        btc=None,
+        source="guardrail_demo",
+        paper_started=True,
+        session_sub=gate_session_sub,
+        book="paper",
+        demo_scenario=scenario_key,
+    )
+
+    rule_code = str(blocked.get("rule_code") if blocked else "unknown")
+    guardrail_message = str(blocked.get("message") if blocked else "")
+    err_trade = f"Trade blocked ({rule_code}): {blocked.get('message') if blocked else 'rule failure'}"
+
+    tick_meta = _GUARDRAIL_DEMO_TICK[scenario_key]
+
+    tick_snapshot = {
+        "action": "blocked" if not allowed else "demo_allowed",
+        "buy_edges": 1,
+        "sell_edges": 0,
+        "data_source": "guardrail_demo",
+        "demo_scenario": scenario_key,
+        "per_strategy": [
+            {
+                "id": tick_meta["strategy_id"],
+                "name": tick_meta["name"],
+                "signal": "BUY",
+                "diagnostics": None,
+                "error": None,
+                "params": {
+                    "story": tick_meta["story"],
+                    "simulated_notional_gbp": _GUARDRAIL_DEMO_NOTIONAL_GBP,
+                },
+            }
+        ],
+        "trade_error": err_trade if not allowed else None,
+        "order_routing": "internal",
+        "rule_code": rule_code if not allowed else None,
+        "guardrail_message": guardrail_message if not allowed else None,
+    }
+
+    publish_paper_event(
+        "vigil_tick",
+        {
+            "t": time.time(),
+            **tick_snapshot,
+        },
+    )
+
+    return {
+        "ok": True,
+        "allowed": allowed,
+        "scenario": scenario_key,
+        "rule_code": rule_code,
+        "message": guardrail_message,
+        "reasons": blocked.get("reasons") if isinstance(blocked, dict) else None,
+        "blocked_id": str(blocked.get("id")) if blocked else None,
     }
 
 

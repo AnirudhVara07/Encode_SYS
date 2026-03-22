@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -7,7 +7,6 @@ import { pctChange24h } from "@/lib/coinbaseTickerItems";
 import { formatDateTimeGb, formatTimeGb } from "@/lib/dateFormat";
 import { fmtGbp, fmtGbpAxis0, fmtGbpSpot } from "@/lib/formatGbp";
 import { cn } from "@/lib/utils";
-import { GuardrailsPanel } from "@/components/trading/GuardrailsPanel";
 import {
   CartesianGrid,
   Line,
@@ -41,7 +40,7 @@ type VigilTickPayload = {
     name?: string;
     signal?: string | null;
     diagnostics?: Record<string, number> | null;
-    params?: Record<string, number>;
+    params?: Record<string, number | string>;
     error?: string | null;
   }>;
   trade_error?: string | null;
@@ -57,6 +56,11 @@ type Props = {
   setBusy: (v: boolean) => void;
   /** Coinbase product id for spot ticker + price chart (e.g. BTC-GBP). */
   spotProductId?: string;
+  /** Lifted for Agent Guardrails demo panel on Dashboard (same SSE stream). */
+  paperKillSwitch: boolean;
+  setPaperKillSwitch: Dispatch<SetStateAction<boolean>>;
+  guardrailsNonce: number;
+  setGuardrailsNonce: Dispatch<SetStateAction<number>>;
 };
 
 const fmtNum = (n: unknown) => {
@@ -66,13 +70,21 @@ const fmtNum = (n: unknown) => {
 
 const PRICE_CHART_REFRESH_MS = 60_000;
 
-export function TradingFloor({ paper, onRefreshPaper, busy, setBusy, spotProductId = "BTC-GBP" }: Props) {
+export function TradingFloor({
+  paper,
+  onRefreshPaper,
+  busy,
+  setBusy,
+  spotProductId = "BTC-GBP",
+  paperKillSwitch,
+  setPaperKillSwitch,
+  guardrailsNonce,
+  setGuardrailsNonce,
+}: Props) {
   const [feedLines, setFeedLines] = useState<string[]>([]);
   const [lastTick, setLastTick] = useState<VigilTickPayload | null>(null);
-  const [killSwitch, setKillSwitch] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
   const [priceCandles, setPriceCandles] = useState<CandleBar[]>([]);
-  const [guardrailsNonce, setGuardrailsNonce] = useState(0);
 
   const productIds = useMemo(() => [spotProductId], [spotProductId]);
   const { ticks } = useCoinbaseTicker(productIds);
@@ -87,13 +99,13 @@ export function TradingFloor({ paper, onRefreshPaper, busy, setBusy, spotProduct
         kill_switch?: boolean;
         last_tick_diagnostics?: VigilTickPayload;
       };
-      setKillSwitch(Boolean(ap.kill_switch));
+      setPaperKillSwitch(Boolean(ap.kill_switch));
       setAutoRunning(Boolean(ap.running));
       if (ap.last_tick_diagnostics) setLastTick(ap.last_tick_diagnostics);
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [setPaperKillSwitch]);
 
   useEffect(() => {
     const es = new EventSource("/api/paper/events");
@@ -103,7 +115,7 @@ export function TradingFloor({ paper, onRefreshPaper, busy, setBusy, spotProduct
         const evName = parsed.event;
         const data = parsed.data as Record<string, unknown> | undefined;
         if (evName === "snapshot" && data) {
-          setKillSwitch(Boolean(data.kill_switch));
+          setPaperKillSwitch(Boolean(data.kill_switch));
           const ap = data.autopilot as { running?: boolean; last_tick_diagnostics?: VigilTickPayload } | undefined;
           setAutoRunning(Boolean(ap?.running));
           if (ap?.last_tick_diagnostics) setLastTick(ap.last_tick_diagnostics);
@@ -119,12 +131,12 @@ export function TradingFloor({ paper, onRefreshPaper, busy, setBusy, spotProduct
           void onRefreshPaper();
         }
         if (evName === "trading_halt") {
-          setKillSwitch(true);
+          setPaperKillSwitch(true);
           setAutoRunning(false);
           setFeedLines((prev) => [`${formatTimeGb(Date.now())} · Paper trades blocked`, ...prev].slice(0, 50));
         }
         if (evName === "trading_resume") {
-          setKillSwitch(false);
+          setPaperKillSwitch(false);
           setFeedLines((prev) => [`${formatTimeGb(Date.now())} · Paper trades allowed`, ...prev].slice(0, 50));
         }
       } catch {
@@ -132,7 +144,7 @@ export function TradingFloor({ paper, onRefreshPaper, busy, setBusy, spotProduct
       }
     };
     return () => es.close();
-  }, [onRefreshPaper]);
+  }, [onRefreshPaper, setPaperKillSwitch, setGuardrailsNonce]);
 
   useEffect(() => {
     void syncAutopilotUi();
@@ -224,12 +236,12 @@ export function TradingFloor({ paper, onRefreshPaper, busy, setBusy, spotProduct
             <span
               className={cn(
                 "inline-flex items-center rounded-full border px-3 py-1 text-xs font-mono uppercase tracking-wide",
-                killSwitch
+                paperKillSwitch
                   ? "border-destructive/60 bg-destructive/10 text-destructive"
                   : "border-border text-muted-foreground",
               )}
             >
-              {killSwitch ? "Paper blocked" : "Paper allowed"}
+              {paperKillSwitch ? "Paper blocked" : "Paper allowed"}
             </span>
             <span
               className={cn(
@@ -252,7 +264,7 @@ export function TradingFloor({ paper, onRefreshPaper, busy, setBusy, spotProduct
           </Button>
           <Button
             type="button"
-            disabled={busy || !started || autoRunning || killSwitch}
+            disabled={busy || !started || autoRunning || paperKillSwitch}
             onClick={() => void postJson("/api/paper/autopilot/start")}
           >
             Start automation
@@ -299,15 +311,17 @@ export function TradingFloor({ paper, onRefreshPaper, busy, setBusy, spotProduct
             <div className="h-[168px] w-full pt-1">
               {priceChartData.length > 1 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={priceChartData}>
+                  <LineChart data={priceChartData} margin={{ top: 4, right: 12, left: 4, bottom: 2 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                     <XAxis
                       dataKey="t"
                       type="number"
+                      scale="time"
                       domain={["dataMin", "dataMax"]}
                       tickFormatter={(ts) => formatTimeGb(Number(ts))}
                       className="text-[10px]"
                       tick={{ fill: "hsl(var(--muted-foreground))" }}
+                      padding={{ left: 12, right: 12 }}
                     />
                     <YAxis
                       className="text-[10px]"
@@ -474,8 +488,6 @@ export function TradingFloor({ paper, onRefreshPaper, busy, setBusy, spotProduct
                 ))
               )}
             </ul>
-
-            <GuardrailsPanel fetchUrl="/api/paper/guardrails" refreshNonce={guardrailsNonce} localKillSwitch={killSwitch} />
           </div>
         </div>
       </CardContent>

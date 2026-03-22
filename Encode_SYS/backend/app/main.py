@@ -9,11 +9,9 @@ from fastapi.staticfiles import StaticFiles
 
 from .api.agent_routes import router as agent_root_router
 from .api.coinbase_live_routes import router as coinbase_live_router
-from .api.routes import get_marketaux_news
-from .api.routes import router as api_router
 from .api.paper_routes import router as paper_router
+from .api.routes import get_marketaux_news, router as api_router
 from .coinbase_live.runner import ensure_scheduler_started
-from .debug_session_log import write_debug as _dbg_write
 
 app = FastAPI(title="Vigil Demo", version="0.1")
 app.add_middleware(
@@ -158,18 +156,5 @@ def spa_history_fallback(full_path: str, request: Request):
             status_code=503,
             detail="SPA not built. Run `npm install && npm run build` in Encode_SYS/frontend.",
         )
-    # region agent log
-    if full_path.rstrip("/") == "dashboard":
-        _dbg_write(
-            location="main.py:spa_history_fallback",
-            message="serve_spa_shell_for_dashboard",
-            data={
-                "full_path": full_path,
-                "static_index": str(_STATIC_INDEX),
-                "index_bytes": _STATIC_INDEX.stat().st_size if _STATIC_INDEX.is_file() else 0,
-            },
-            hypothesis_id="A",
-        )
-    # endregion
     return FileResponse(str(_STATIC_INDEX))
 

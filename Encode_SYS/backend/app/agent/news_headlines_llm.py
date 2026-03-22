@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any, Dict, List
 
-from .llm_http import _agent_debug_log, guarded_llm_chat_completion, llm_key_error_message, require_llm_config
+from .llm_http import guarded_llm_chat_completion, llm_key_error_message, require_llm_config
 from .llm_safety import SafetyProfile
 from .secrets_redact import redact_secrets_for_client
 
@@ -68,18 +68,6 @@ def strategy_insights_from_headlines(*, articles: List[Dict[str, Any]]) -> Dict[
             timeout=60,
             safety_profile=SafetyProfile.NEWS_INSIGHTS,
         )
-        # #region agent log
-        _agent_debug_log(
-            hypothesis_id="H3",
-            location="news_headlines_llm.py:strategy_insights_from_headlines",
-            message="llm_chat_completion_response",
-            data={
-                "provider": "openrouter",
-                "ok": err is None,
-                "body_preview": redact_secrets_for_client((text or err or "")[:800]),
-            },
-        )
-        # #endregion
         if err:
             return {
                 "summary": "",
@@ -121,14 +109,6 @@ def strategy_insights_from_headlines(*, articles: List[Dict[str, Any]]) -> Dict[
             "safety": safety,
         }
     except Exception as e:
-        # #region agent log
-        _agent_debug_log(
-            hypothesis_id="H5",
-            location="news_headlines_llm.py:strategy_insights_from_headlines",
-            message="llm_request_exception",
-            data={"exc_type": type(e).__name__, "exc": redact_secrets_for_client(str(e))[:500]},
-        )
-        # #endregion
         return {
             "summary": "",
             "considerations": [],

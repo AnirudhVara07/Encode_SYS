@@ -4,67 +4,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { formatDateGbFromIso } from "@/lib/dateFormat";
+import {
+  describeMarketNewsHttpFailure,
+  marketNewsUrl,
+  normalizeStrategyInsights,
+  parseMarketArticles,
+  type MarketArticle,
+  type MarketNewsResponse,
+  type StrategyInsights,
+} from "@/lib/marketNews";
 import { cn } from "@/lib/utils";
-
-type StrategyInsights = {
-  summary: string;
-  considerations: string[];
-  macro_todos: string[];
-  asset_todos: string[];
-  error: string | null;
-};
-
-type DemoArticle = {
-  title: string;
-  description: string;
-  url: string;
-  image_url: string;
-  published_at: string;
-  source: string;
-  entities: string[];
-};
-
-type MarketNewsResponse = {
-  articles: unknown[];
-  error: string | null;
-  strategy_insights?: StrategyInsights;
-};
-
-function normalizeInsights(raw: unknown): StrategyInsights | null {
-  if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
-  const strs = (k: string) =>
-    Array.isArray(o[k]) ? o[k]!.filter((x): x is string => typeof x === "string") : [];
-  return {
-    summary: typeof o.summary === "string" ? o.summary : "",
-    considerations: strs("considerations"),
-    macro_todos: strs("macro_todos"),
-    asset_todos: strs("asset_todos"),
-    error: typeof o.error === "string" ? o.error : null,
-  };
-}
-
-function parseArticles(raw: unknown): DemoArticle[] {
-  if (!Array.isArray(raw)) return [];
-  const out: DemoArticle[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const o = item as Record<string, unknown>;
-    const entities = Array.isArray(o.entities)
-      ? o.entities.filter((x): x is string => typeof x === "string")
-      : [];
-    out.push({
-      title: typeof o.title === "string" ? o.title : "",
-      description: typeof o.description === "string" ? o.description : "",
-      url: typeof o.url === "string" ? o.url : "#",
-      image_url: typeof o.image_url === "string" ? o.image_url : "",
-      published_at: typeof o.published_at === "string" ? o.published_at : "",
-      source: typeof o.source === "string" ? o.source : "",
-      entities,
-    });
-  }
-  return out;
-}
 
 function TodoColumn({
   title,
@@ -116,7 +65,7 @@ function TodoColumn({
 const DemoAiNewsPanel = () => {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [articles, setArticles] = useState<DemoArticle[]>([]);
+  const [articles, setArticles] = useState<MarketArticle[]>([]);
   const [insights, setInsights] = useState<StrategyInsights | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryFetchError, setSummaryFetchError] = useState<string | null>(null);
@@ -126,46 +75,17 @@ const DemoAiNewsPanel = () => {
     setSummaryLoading(true);
     setSummaryFetchError(null);
     try {
-      const res = await fetch("/api/marketaux-news?limit=12&insights=1");
+      const res = await fetch(marketNewsUrl(12, true));
       const data = (await res.json()) as MarketNewsResponse;
-      // #region agent log
-      {
-        const rawSi = data.strategy_insights;
-        const normProbe = normalizeInsights(rawSi);
-        fetch("http://127.0.0.1:7525/ingest/58246f49-c20a-4cf3-8c2c-5b5ed0515952", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "16c4fd" },
-          body: JSON.stringify({
-            sessionId: "16c4fd",
-            runId: "pre",
-            hypothesisId: "H1",
-            location: "DemoAiNewsPanel.tsx:afterSummaryFetch",
-            message: "summary fetch parsed",
-            data: {
-              ok: res.ok,
-              topError: typeof data.error === "string" ? data.error.length : -1,
-              hasSiKey: Object.prototype.hasOwnProperty.call(data, "strategy_insights"),
-              rawSiType: rawSi === undefined ? "undefined" : rawSi === null ? "null" : typeof rawSi,
-              normIsNull: normProbe === null,
-              summaryLen: normProbe?.summary?.length ?? -1,
-              siErrorLen: normProbe?.error ? normProbe.error.length : 0,
-              macroN: normProbe?.macro_todos?.length ?? -1,
-              assetN: normProbe?.asset_todos?.length ?? -1,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-      }
-      // #endregion
       if (!res.ok) {
-        setSummaryFetchError(typeof data.error === "string" ? data.error : "Could not load AI summary.");
+        setSummaryFetchError(describeMarketNewsHttpFailure(res, data, "Could not load AI summary."));
         return;
       }
       if (data.error) {
         setSummaryFetchError(data.error);
         return;
       }
-      setInsights(normalizeInsights(data.strategy_insights));
+      setInsights(normalizeStrategyInsights(data.strategy_insights));
     } catch {
       setSummaryFetchError("Could not load AI summary.");
     } finally {
@@ -179,13 +99,13 @@ const DemoAiNewsPanel = () => {
       setLoading(true);
       setFetchError(null);
       try {
-        const res = await fetch("/api/marketaux-news?limit=12");
+        const res = await fetch(marketNewsUrl(12, false));
         const data = (await res.json()) as MarketNewsResponse;
         if (cancelled) return;
         if (!res.ok) {
           setArticles([]);
           setInsights(null);
-          setFetchError(typeof data.error === "string" ? data.error : "Could not load news briefing.");
+          setFetchError(describeMarketNewsHttpFailure(res, data, "Could not load news briefing."));
           return;
         }
         if (data.error) {
@@ -194,7 +114,7 @@ const DemoAiNewsPanel = () => {
           setFetchError(data.error);
           return;
         }
-        setArticles(parseArticles(data.articles));
+        setArticles(parseMarketArticles(data.articles));
       } catch {
         if (!cancelled) {
           setArticles([]);

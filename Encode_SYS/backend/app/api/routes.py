@@ -344,7 +344,6 @@ def _debug_marketaux_ndjson(
     strategy_insights: Optional[Dict[str, Any]],
     early: Optional[str] = None,
 ) -> None:
-    # #region agent log
     _path = os.getenv("VIGIL_DEBUG_MARKETAUX_LOG", "").strip()
     if not _path:
         return
@@ -377,7 +376,6 @@ def _debug_marketaux_ndjson(
             _dbf.write(_dbg_json.dumps(row) + "\n")
     except Exception:
         pass
-    # #endregion
 
 
 def get_marketaux_news(

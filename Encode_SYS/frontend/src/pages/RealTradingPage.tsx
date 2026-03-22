@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +19,7 @@ import { fetchTradingGuard, type TradingGuardConfig } from "@/lib/tradingGuard";
 import { fmtGbp } from "@/lib/formatGbp";
 import { formatDateTimeGb } from "@/lib/dateFormat";
 import { downloadJsonFile, strategyExportFilename } from "@/lib/strategyDownload";
+import { reauthViaCivicLogin } from "@/lib/civicOAuth";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Download, Wallet } from "lucide-react";
 
@@ -160,7 +162,10 @@ function gbpFromBalances(balances: NonNullable<StatusResponse["balances"]>): num
   return 0;
 }
 
+const LIVE_VIGIL_ANCHOR_ID = "live-vigil";
+
 export default function RealTradingPage() {
+  const location = useLocation();
   const { bearer } = useVigilUser();
   const loggedIn = Boolean(bearer.trim());
   const headers = {
@@ -196,6 +201,8 @@ export default function RealTradingPage() {
   const [tradingGuard, setTradingGuard] = useState<TradingGuardConfig | null>(null);
   const [liveConfirmOpen, setLiveConfirmOpen] = useState(false);
   const liveVigilPollInFlight = useRef(false);
+  /** Avoid stacking redirects when status polling hits 401 repeatedly. */
+  const coinbase401CivicRedirectRef = useRef(false);
 
   const [productIdDraft, setProductIdDraft] = useState("BTC-GBP");
 
@@ -209,8 +216,16 @@ export default function RealTradingPage() {
         setCoinbaseStatusUnauthorized(false);
         setStatus(d);
       } else if (r.status === 401) {
-        setCoinbaseStatusUnauthorized(true);
         setStatus(null);
+        if (coinbase401CivicRedirectRef.current) {
+          return;
+        }
+        coinbase401CivicRedirectRef.current = true;
+        const ok = await reauthViaCivicLogin({ returnTo: window.location.pathname });
+        if (!ok) {
+          coinbase401CivicRedirectRef.current = false;
+          setCoinbaseStatusUnauthorized(true);
+        }
       } else {
         setCoinbaseStatusUnauthorized(false);
         setStatus(d);
@@ -452,6 +467,16 @@ export default function RealTradingPage() {
   }, [loadStatus, loadFills, loadAutopilotForm]);
 
   useEffect(() => {
+    const hashId = location.hash.replace(/^#/, "");
+    if (hashId !== LIVE_VIGIL_ANCHOR_ID) return;
+    if (!status?.linked) return;
+    const id = window.requestAnimationFrame(() => {
+      document.getElementById(LIVE_VIGIL_ANCHOR_ID)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [location.hash, location.pathname, status?.linked]);
+
+  useEffect(() => {
     if (!loggedIn || !status?.linked || !status?.autopilot?.running) return;
     const tick = () => {
       if (liveVigilPollInFlight.current) return;
@@ -467,6 +492,7 @@ export default function RealTradingPage() {
 
   useEffect(() => {
     if (!loggedIn) {
+      coinbase401CivicRedirectRef.current = false;
       setCachedUploadedProfileRow(null);
       setStrategyImportPreview({ ...EMPTY_STRATEGY_IMPORT_PREVIEW });
       setCoinbaseStatusLoading(false);
@@ -768,9 +794,9 @@ export default function RealTradingPage() {
           <Alert variant="destructive">
             <AlertTitle>Vigil session expired or invalid</AlertTitle>
             <AlertDescription>
-              The app could not load Coinbase status (HTTP 401). Your <code className="text-xs">.env</code> preset keys may already be
-              correct — sign out and sign in with Civic again, then tap <strong>Refresh status</strong>. A stale browser token often looks
-              like missing Coinbase credentials.
+              The app could not load Coinbase status (HTTP 401) and could not open Civic sign-in (is the backend running?). Your{" "}
+              <code className="text-xs">.env</code> preset keys may already be correct — use <strong>Log in</strong> in the header or{" "}
+              <strong>Refresh status</strong> after the server is up. A stale browser token often looks like missing Coinbase credentials.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -1151,7 +1177,7 @@ export default function RealTradingPage() {
             ) : null}
 
             {status?.linked ? (
-              <Card>
+              <Card id={LIVE_VIGIL_ANCHOR_ID} className="scroll-mt-28">
                 <CardHeader>
                   <CardTitle>Live Vigil (automation)</CardTitle>
                   <CardDescription>
