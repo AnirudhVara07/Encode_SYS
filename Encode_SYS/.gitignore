@@ -3,10 +3,15 @@
 
 .logs/
 backend/data/
+# Never commit real keys; templates are *.example, not `.env`.
+**/.env
 backend/.env
 .env
 .env.local
 .env.*.local
+*.env.local
+.env.development.local
+.env.production.local
 *.pem
 
 frontend/node_modules/
